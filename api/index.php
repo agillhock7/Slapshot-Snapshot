@@ -624,6 +624,54 @@ function handle_media_delete(PDO $pdo): void
     json_response(['ok' => true]);
 }
 
+function handle_media_delete_batch(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $mediaIds = $input['media_ids'] ?? [];
+    if (!is_array($mediaIds) || count($mediaIds) === 0) {
+        json_response(['ok' => false, 'error' => 'media_ids array required.'], 422);
+    }
+
+    $deleted = 0;
+    foreach ($mediaIds as $rawId) {
+        $mediaId = (int) $rawId;
+        if ($mediaId <= 0) {
+            continue;
+        }
+        $stmt = $pdo->prepare(
+            'SELECT m.id, m.team_id, m.uploader_user_id, m.storage_type, m.file_path
+             FROM media_items m
+             WHERE m.id = ? LIMIT 1'
+        );
+        $stmt->execute([$mediaId]);
+        $item = $stmt->fetch();
+        if (!$item) {
+            continue;
+        }
+
+        $role = require_team_membership($pdo, $uid, (int) $item['team_id']);
+        $isOwnerLike = in_array($role, ['owner', 'admin'], true);
+        if ((int) $item['uploader_user_id'] !== $uid && !$isOwnerLike) {
+            continue;
+        }
+
+        $delStmt = $pdo->prepare('DELETE FROM media_items WHERE id = ?');
+        $delStmt->execute([$mediaId]);
+        $deleted++;
+
+        if ($item['storage_type'] === 'upload' && !empty($item['file_path'])) {
+            $path = APP_ROOT . (string) $item['file_path'];
+            if (str_starts_with_compat((string) (realpath(dirname($path)) ?: ''), (string) (realpath(UPLOAD_ROOT) ?: '__none__')) && file_exists($path)) {
+                @unlink($path);
+            }
+        }
+    }
+
+    json_response(['ok' => true, 'deleted' => $deleted]);
+}
+
 function handle_invite_email(PDO $pdo): void
 {
     require_method('POST');
@@ -790,6 +838,9 @@ switch ($action) {
     case 'media_delete':
         handle_media_delete($pdo);
         break;
+    case 'media_delete_batch':
+        handle_media_delete_batch($pdo);
+        break;
     case 'invite_email':
         handle_invite_email($pdo);
         break;
@@ -813,6 +864,7 @@ switch ($action) {
                 'media_upload',
                 'media_external',
                 'media_delete',
+                'media_delete_batch',
                 'invite_email'
             ]
         ]);

@@ -14,6 +14,10 @@ const mediaItems = ref([]);
 const modalItem = ref(null);
 const mediaFilter = ref("all");
 const searchQuery = ref("");
+const sortBy = ref("newest");
+const groupBy = ref("none");
+const selectionMode = ref(false);
+const selectedMediaIds = ref([]);
 const banner = reactive({ type: "", message: "" });
 const authMode = ref("register");
 const activeTab = ref("overview");
@@ -25,6 +29,7 @@ const membersLoading = ref(false);
 const visibleCount = ref(PAGE_SIZE);
 const loadMoreSentinel = ref(null);
 let observer = null;
+let keyHandler = null;
 
 const loginForm = reactive({ email: "", password: "" });
 const registerForm = reactive({
@@ -98,8 +103,38 @@ const filteredMedia = computed(() => {
     return text.includes(query);
   });
 });
-const visibleMedia = computed(() => filteredMedia.value.slice(0, visibleCount.value));
-const hasMoreMedia = computed(() => visibleCount.value < filteredMedia.value.length);
+const sortedMedia = computed(() => {
+  const items = [...filteredMedia.value];
+  switch (sortBy.value) {
+    case "oldest":
+      return items.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    case "title":
+      return items.sort((a, b) => a.title.localeCompare(b.title));
+    case "uploader":
+      return items.sort((a, b) => a.uploader_name.localeCompare(b.uploader_name));
+    case "gamedate":
+      return items.sort((a, b) => new Date(b.game_date || b.created_at) - new Date(a.game_date || a.created_at));
+    case "newest":
+    default:
+      return items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+});
+const visibleMedia = computed(() => sortedMedia.value.slice(0, visibleCount.value));
+const groupedVisibleMedia = computed(() => {
+  if (groupBy.value === "none") return [{ key: "all", label: "All Media", items: visibleMedia.value }];
+  const map = new Map();
+  for (const item of visibleMedia.value) {
+    let key = "Other";
+    if (groupBy.value === "uploader") key = item.uploader_name || "Unknown";
+    if (groupBy.value === "type") key = item.media_type === "photo" ? "Photos" : "Videos";
+    if (groupBy.value === "date") key = displayDate(item.game_date || item.created_at?.slice(0, 10));
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return Array.from(map.entries()).map(([key, items]) => ({ key, label: key, items }));
+});
+const hasMoreMedia = computed(() => visibleCount.value < sortedMedia.value.length);
+const selectedCount = computed(() => selectedMediaIds.value.length);
 const totalUploadProgress = computed(() => {
   if (!uploadQueue.value.length) return 0;
   const sum = uploadQueue.value.reduce((acc, item) => acc + item.progress, 0);
@@ -119,6 +154,70 @@ function clearBanner() {
 function displayDate(date) {
   if (!date) return "No date";
   return new Date(`${date}T00:00:00`).toLocaleDateString();
+}
+
+function isSelected(mediaId) {
+  return selectedMediaIds.value.includes(mediaId);
+}
+
+function toggleSelectionMode() {
+  selectionMode.value = !selectionMode.value;
+  if (!selectionMode.value) selectedMediaIds.value = [];
+}
+
+function toggleSelected(mediaId) {
+  if (!selectionMode.value) return;
+  if (isSelected(mediaId)) {
+    selectedMediaIds.value = selectedMediaIds.value.filter((id) => id !== mediaId);
+    return;
+  }
+  selectedMediaIds.value = [...selectedMediaIds.value, mediaId];
+}
+
+function selectAllVisible() {
+  const ids = visibleMedia.value.map((item) => item.id);
+  selectedMediaIds.value = Array.from(new Set([...selectedMediaIds.value, ...ids]));
+}
+
+function clearSelection() {
+  selectedMediaIds.value = [];
+}
+
+function openMediaModal(item) {
+  if (selectionMode.value) {
+    toggleSelected(item.id);
+    return;
+  }
+  modalItem.value = item;
+}
+
+function modalIndex() {
+  if (!modalItem.value) return -1;
+  return sortedMedia.value.findIndex((item) => item.id === modalItem.value.id);
+}
+
+function modalPrev() {
+  const idx = modalIndex();
+  if (idx > 0) modalItem.value = sortedMedia.value[idx - 1];
+}
+
+function modalNext() {
+  const idx = modalIndex();
+  if (idx >= 0 && idx < sortedMedia.value.length - 1) modalItem.value = sortedMedia.value[idx + 1];
+}
+
+function downloadMediaItem(item) {
+  if (item.storage_type === "upload" && item.file_path) {
+    const link = document.createElement("a");
+    link.href = item.file_path;
+    link.download = `${item.title || "media"}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    return;
+  }
+  const target = item.external_url || item.file_path;
+  if (target) window.open(target, "_blank", "noopener,noreferrer");
 }
 
 function extractJoinCodeFromUrl() {
@@ -215,6 +314,8 @@ async function loadMedia() {
   if (!activeTeamId.value) return;
   const payload = await apiGet("media_list", { team_id: activeTeamId.value });
   mediaItems.value = payload.items || [];
+  const validIds = new Set(mediaItems.value.map((m) => m.id));
+  selectedMediaIds.value = selectedMediaIds.value.filter((id) => validIds.has(id));
   resetGalleryPagination();
 }
 
@@ -527,8 +628,28 @@ async function deleteMedia(id) {
     await apiPost("media_delete", { media_id: id });
     await loadMedia();
     if (modalItem.value?.id === id) modalItem.value = null;
+    selectedMediaIds.value = selectedMediaIds.value.filter((mid) => mid !== id);
     setBanner("success", "Media removed.");
   });
+}
+
+async function deleteSelectedMedia() {
+  if (selectedMediaIds.value.length === 0) return;
+  if (!window.confirm(`Delete ${selectedMediaIds.value.length} selected items?`)) return;
+  await withBusy(async () => {
+    const payload = await apiPost("media_delete_batch", { media_ids: selectedMediaIds.value });
+    await loadMedia();
+    selectedMediaIds.value = [];
+    modalItem.value = null;
+    setBanner("success", `Deleted ${payload.deleted || 0} media items.`);
+  });
+}
+
+function downloadSelectedMedia() {
+  if (selectedMediaIds.value.length === 0) return;
+  const selected = sortedMedia.value.filter((item) => selectedMediaIds.value.includes(item.id));
+  selected.forEach((item) => downloadMediaItem(item));
+  setBanner("success", "Opened selected media for download.");
 }
 
 async function copyInviteCode() {
@@ -586,7 +707,7 @@ function emailInviteLink() {
   return `mailto:?subject=${subject}&body=${encodeURIComponent(inviteCopy.value)}`;
 }
 
-watch([filteredMedia, activeTab], async () => {
+watch([sortedMedia, activeTab, groupBy], async () => {
   resetGalleryPagination();
   await nextTick();
   setupInfiniteScroll();
@@ -600,10 +721,18 @@ onMounted(async () => {
   await loadSession();
   await nextTick();
   setupInfiniteScroll();
+  keyHandler = (event) => {
+    if (!modalItem.value) return;
+    if (event.key === "ArrowLeft") modalPrev();
+    if (event.key === "ArrowRight") modalNext();
+    if (event.key === "Escape") modalItem.value = null;
+  };
+  window.addEventListener("keydown", keyHandler);
 });
 
 onBeforeUnmount(() => {
   if (observer) observer.disconnect();
+  if (keyHandler) window.removeEventListener("keydown", keyHandler);
 });
 </script>
 
@@ -740,26 +869,92 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-if="activeTab === 'gallery'" class="panel padded">
-        <div class="toolbar">
+        <div class="toolbar gallery-toolbar">
           <div class="chips">
-            <button v-for="type in ['all', 'photo', 'video']" :key="type" :class="['chip', { active: mediaFilter === type }]" @click="mediaFilter = type">{{ type }}</button>
+            <button
+              v-for="type in ['all', 'photo', 'video']"
+              :key="type"
+              :class="['chip', { active: mediaFilter === type }]"
+              @click="mediaFilter = type"
+            >
+              {{ type }}
+            </button>
+          </div>
+          <div class="gallery-controls">
+            <select v-model="sortBy" aria-label="Sort media">
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="gamedate">Game Date</option>
+              <option value="title">Title</option>
+              <option value="uploader">Uploader</option>
+            </select>
+            <select v-model="groupBy" aria-label="Group media">
+              <option value="none">No Group</option>
+              <option value="date">Group by Date</option>
+              <option value="uploader">Group by Uploader</option>
+              <option value="type">Group by Type</option>
+            </select>
+            <button class="btn btn-ghost" @click="toggleSelectionMode">
+              {{ selectionMode ? "Exit Select" : "Select" }}
+            </button>
           </div>
           <input v-model="searchQuery" placeholder="Search title, caption, uploader..." />
         </div>
 
-        <section class="gallery">
-          <article v-for="item in visibleMedia" :key="item.id" class="media-card" @click="modalItem = item">
-            <img v-if="item.media_type === 'photo'" :src="item.file_path || item.thumbnail_url" :alt="item.title" loading="lazy" decoding="async" />
-            <img v-else :src="item.thumbnail_url || '/video-placeholder.svg'" :alt="item.title" loading="lazy" decoding="async" />
-            <div class="copy">
-              <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
-              <h4>{{ item.title }}</h4>
-              <p>{{ item.description || "No description yet." }}</p>
-            </div>
-          </article>
+        <div v-if="selectionMode" class="batch-bar">
+          <p>{{ selectedCount }} selected</p>
+          <div class="button-row">
+            <button class="btn btn-ghost" @click="selectAllVisible">Select Visible</button>
+            <button class="btn btn-ghost" @click="clearSelection">Clear</button>
+            <button class="btn btn-secondary" :disabled="selectedCount === 0" @click="downloadSelectedMedia">
+              Download Selected
+            </button>
+            <button class="btn btn-danger" :disabled="selectedCount === 0" @click="deleteSelectedMedia">
+              Delete Selected
+            </button>
+          </div>
+        </div>
+
+        <section v-for="group in groupedVisibleMedia" :key="group.key" class="media-group">
+          <h4 v-if="groupBy !== 'none'" class="group-label">{{ group.label }}</h4>
+          <div class="gallery">
+            <article
+              v-for="item in group.items"
+              :key="item.id"
+              :class="['media-card', { selected: isSelected(item.id) }]"
+              @click="openMediaModal(item)"
+            >
+              <button
+                v-if="selectionMode"
+                class="select-dot"
+                :class="{ on: isSelected(item.id) }"
+                @click.stop="toggleSelected(item.id)"
+                aria-label="Toggle select media"
+              />
+              <img
+                v-if="item.media_type === 'photo'"
+                :src="item.file_path || item.thumbnail_url"
+                :alt="item.title"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                v-else
+                :src="item.thumbnail_url || '/video-placeholder.svg'"
+                :alt="item.title"
+                loading="lazy"
+                decoding="async"
+              />
+              <div class="copy">
+                <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
+                <h4>{{ item.title }}</h4>
+                <p>{{ item.description || "No description yet." }}</p>
+              </div>
+            </article>
+          </div>
         </section>
         <div ref="loadMoreSentinel" class="load-sentinel" />
-        <p v-if="filteredMedia.length === 0" class="empty">No media found for this filter yet.</p>
+        <p v-if="sortedMedia.length === 0" class="empty">No media found for this filter yet.</p>
         <p v-else-if="hasMoreMedia" class="empty">Scroll for more...</p>
       </section>
 
@@ -879,9 +1074,20 @@ onBeforeUnmount(() => {
 
     <section v-if="modalItem" class="modal-backdrop" @click.self="modalItem = null">
       <article class="modal-card">
-        <button class="btn btn-ghost" @click="modalItem = null">Close</button>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" @click="modalItem = null">Close</button>
+          <button class="btn btn-ghost" @click="modalPrev">Prev</button>
+          <button class="btn btn-ghost" @click="modalNext">Next</button>
+          <button class="btn btn-secondary" @click="downloadMediaItem(modalItem)">Download</button>
+        </div>
         <h3>{{ modalItem.title }}</h3>
         <p class="meta">{{ displayDate(modalItem.game_date) }} · {{ modalItem.uploader_name }}</p>
+        <div class="detail-chips">
+          <span>{{ modalItem.media_type }}</span>
+          <span>{{ modalItem.storage_type }}</span>
+          <span v-if="modalItem.file_size">{{ Math.round(modalItem.file_size / 1024) }} KB</span>
+          <span>{{ displayDate(modalItem.game_date || modalItem.created_at?.slice(0, 10)) }}</span>
+        </div>
         <p>{{ modalItem.description || "No description." }}</p>
         <img v-if="modalItem.media_type === 'photo'" :src="modalItem.file_path || modalItem.thumbnail_url" :alt="modalItem.title" class="viewer" />
         <video v-else-if="modalItem.storage_type === 'upload'" :src="modalItem.file_path" controls class="viewer" />

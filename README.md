@@ -12,7 +12,8 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Team member management (owner/admin/member roles)
 - Team profile metadata (age group, season year, level, rink, city, notes)
 - Team update and owner-only delete with double-confirm safeguard
-- Infinite-scroll gallery with lazy-loaded media cards
+- Premium gallery experience: sort, group, rich detail modal, batch actions
+- Infinite-scroll gallery with lazy-loaded media cards and render optimization
 - Team-scoped gallery with search and filtering
 
 ## Tech stack

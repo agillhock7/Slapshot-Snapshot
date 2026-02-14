@@ -448,6 +448,23 @@ textarea {
   align-items: center;
 }
 
+.gallery-toolbar {
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.gallery-controls {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.gallery-controls select {
+  width: auto;
+  min-width: 120px;
+}
+
 .chips {
   display: flex;
   gap: 0.45rem;
@@ -474,6 +491,15 @@ textarea {
   gap: 0.75rem;
 }
 
+.media-group {
+  margin-top: 0.85rem;
+}
+
+.group-label {
+  margin: 0 0 0.35rem;
+  color: var(--muted);
+}
+
 .load-sentinel {
   height: 1px;
 }
@@ -485,6 +511,9 @@ textarea {
   background: #fff;
   cursor: pointer;
   transition: transform 0.17s ease, box-shadow 0.17s ease;
+  position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: 300px;
 }
 
 .media-card:hover {
@@ -495,8 +524,45 @@ textarea {
 .media-card img {
   display: block;
   width: 100%;
-  height: 160px;
+  height: 170px;
   object-fit: cover;
+  background: linear-gradient(145deg, #f3f6ff, #ecf0fa);
+}
+
+.media-card.selected {
+  outline: 3px solid #ff7a45;
+}
+
+.select-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: rgba(16, 26, 47, 0.5);
+  z-index: 3;
+  cursor: pointer;
+}
+
+.select-dot.on {
+  background: #ff6a3a;
+}
+
+.batch-bar {
+  margin-top: 0.75rem;
+  border: 1px solid #ffd4be;
+  background: #fff7f2;
+  border-radius: 12px;
+  padding: 0.65rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.batch-bar p {
+  margin: 0;
+  font-weight: 700;
 }
 
 .copy {
@@ -607,6 +673,27 @@ textarea {
   background: #fff;
 }
 
+.modal-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.detail-chips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.detail-chips span {
+  border: 1px solid #dddff0;
+  background: #f6f8ff;
+  border-radius: 999px;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.82rem;
+  text-transform: capitalize;
+}
+
 .viewer {
   width: 100%;
   max-height: 72vh;
@@ -673,6 +760,10 @@ textarea {
   .toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .gallery-controls select {
+    width: 100%;
   }
 
   .topbar {
