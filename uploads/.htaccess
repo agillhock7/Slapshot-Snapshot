@@ -3,3 +3,12 @@ Options -Indexes
 <FilesMatch "\.php$">
   Require all denied
 </FilesMatch>
+
+<IfModule mod_setenvif.c>
+  SetEnvIf Request_URI "^/uploads/team-[0-9]+/branding/" TEAM_BRANDING=1
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always unset Cross-Origin-Resource-Policy env=TEAM_BRANDING
+  Header always set Cross-Origin-Resource-Policy "cross-origin" env=TEAM_BRANDING
+</IfModule>
