@@ -27,7 +27,7 @@ This generates `dist/`, which is what cPanel deploys to:
 
 ## cPanel deployment
 
-`cpanel.yml` is configured to:
+`.cpanel.yml` is configured to:
 
 1. Set deployment path to `/home/puccus/snap.pucc.us`
 2. Copy all built files from `dist/` into that path
