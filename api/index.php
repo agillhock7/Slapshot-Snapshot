@@ -233,6 +233,76 @@ function email_shell_html(
 </div></body></html>';
 }
 
+function fetch_team_for_invite_email(PDO $pdo, int $teamId): ?array
+{
+    try {
+        $teamStmt = $pdo->prepare('SELECT name, join_code, logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+    } catch (Throwable $e) {
+        // Backward-compatible fallback when logo_path migration has not been applied yet.
+        $teamStmt = $pdo->prepare('SELECT name, join_code, NULL AS logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+    }
+    return $team ?: null;
+}
+
+function send_team_invite_email(array $team, string $senderName, string $recipientEmail, string $message): bool
+{
+    $appUrl = APP_PUBLIC_URL;
+    $brandName = APP_BRAND_NAME;
+    $inviteUrl = $appUrl . '/?join=' . rawurlencode((string) $team['join_code']);
+    $teamLogoPath = trim((string) ($team['logo_path'] ?? ''));
+    $logoUrl = $teamLogoPath !== '' ? absolute_public_url($teamLogoPath) : default_brand_logo_url();
+    $subject = sprintf('Invitation to join %s on %s', (string) $team['name'], $brandName);
+
+    $plainLines = [
+        sprintf('%s invited you to join "%s" on %s.', $senderName, (string) $team['name'], $brandName),
+        '',
+        sprintf('Join code: %s', (string) $team['join_code']),
+        sprintf('Direct link: %s', $inviteUrl),
+    ];
+    if ($message !== '') {
+        $plainLines[] = '';
+        $plainLines[] = 'Personal note:';
+        $plainLines[] = $message;
+    }
+    $plainLines[] = '';
+    $plainLines[] = 'See you at the rink.';
+    $plainText = implode("\r\n", $plainLines);
+
+    $senderEsc = htmlspecialchars($senderName, ENT_QUOTES, 'UTF-8');
+    $teamEsc = htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8');
+    $codeEsc = htmlspecialchars((string) $team['join_code'], ENT_QUOTES, 'UTF-8');
+    $linkEsc = htmlspecialchars($inviteUrl, ENT_QUOTES, 'UTF-8');
+    $messageEsc = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+    $personalNoteHtml = $message !== ''
+        ? '<p style="margin:16px 0 6px;color:#334;">Personal note:</p><div style="background:#f7f8fc;border-radius:10px;padding:10px 12px;color:#25324a;">' . $messageEsc . '</div>'
+        : '';
+    $inviteBodyHtml = '
+<h2 style="margin:0 0 12px;color:#0f2f59;">You are invited to join ' . $teamEsc . '</h2>
+<p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . htmlspecialchars($brandName, ENT_QUOTES, 'UTF-8') . '.</p>
+<p style="margin:0 0 6px;color:#2e3c56;"><strong>Join code:</strong> ' . $codeEsc . '</p>
+<p style="margin:0 0 18px;"><a href="' . $linkEsc . '" style="display:inline-block;background:#ff5a2a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Open Invite Link</a></p>
+' . $personalNoteHtml . '
+<p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>';
+    $html = email_shell_html(
+        'Team Invite',
+        'Join ' . (string) $team['name'],
+        $inviteBodyHtml,
+        '#133056',
+        '#1f5e94',
+        $logoUrl
+    );
+
+    $ok = send_multipart_email($recipientEmail, $subject, $plainText, $html);
+    if (!$ok) {
+        $ok = send_plain_email($recipientEmail, $subject, $plainText);
+    }
+    return $ok;
+}
+
 function team_logo_extension_for_mime(string $mimeType): ?string
 {
     switch ($mimeType) {
@@ -738,7 +808,7 @@ function remove_dir_recursive(string $path): void
     @rmdir($path);
 }
 
-function list_team_invites(PDO $pdo, int $teamId): array
+function list_team_invites(PDO $pdo, int $teamId, int $viewerUserId): array
 {
     // Keep statuses accurate when an invited email has now joined the team.
     $syncStmt = $pdo->prepare(
@@ -754,6 +824,7 @@ function list_team_invites(PDO $pdo, int $teamId): array
         'SELECT
             ti.id,
             ti.email,
+            ti.invited_by_user_id,
             CASE WHEN tm.id IS NOT NULL THEN "accepted" ELSE ti.status END AS status,
             ti.message_preview,
             ti.send_count,
@@ -762,7 +833,8 @@ function list_team_invites(PDO $pdo, int $teamId): array
             COALESCE(ti.accepted_at, tm.created_at) AS accepted_at,
             inviter.display_name AS invited_by_name,
             accepted_user.id AS accepted_user_id,
-            accepted_user.display_name AS accepted_user_name
+            accepted_user.display_name AS accepted_user_name,
+            CASE WHEN ti.invited_by_user_id = ? THEN 1 ELSE 0 END AS can_manage
          FROM team_invites ti
          LEFT JOIN users inviter ON inviter.id = ti.invited_by_user_id
          LEFT JOIN users accepted_user ON accepted_user.email = ti.email
@@ -777,7 +849,7 @@ function list_team_invites(PDO $pdo, int $teamId): array
             ti.last_sent_at DESC,
             ti.id DESC'
     );
-    $stmt->execute([$teamId]);
+    $stmt->execute([$viewerUserId, $teamId]);
     return $stmt->fetchAll();
 }
 
@@ -802,16 +874,14 @@ function handle_team_members(PDO $pdo): void
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
-    $role = require_team_membership($pdo, $uid, $teamId);
+    require_team_membership($pdo, $uid, $teamId);
     $members = list_team_members($pdo, $teamId);
     $invites = [];
     $inviteTrackingEnabled = true;
-    if ($role === 'owner') {
-        try {
-            $invites = list_team_invites($pdo, $teamId);
-        } catch (Throwable $e) {
-            $inviteTrackingEnabled = false;
-        }
+    try {
+        $invites = list_team_invites($pdo, $teamId, $uid);
+    } catch (Throwable $e) {
+        $inviteTrackingEnabled = false;
     }
     json_response([
         'ok' => true,
@@ -1390,6 +1460,111 @@ function handle_media_delete_batch(PDO $pdo): void
     json_response(['ok' => true, 'deleted' => $deleted]);
 }
 
+function fetch_team_invite_by_id(PDO $pdo, int $teamId, int $inviteId): ?array
+{
+    $stmt = $pdo->prepare(
+        'SELECT ti.*
+         FROM team_invites ti
+         WHERE ti.id = ? AND ti.team_id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$inviteId, $teamId]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+}
+
+function handle_invite_resend(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $inviteId = (int) ($input['invite_id'] ?? 0);
+    if ($teamId <= 0 || $inviteId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id and invite_id are required.'], 422);
+    }
+    require_team_membership($pdo, $uid, $teamId);
+
+    try {
+        $invite = fetch_team_invite_by_id($pdo, $teamId, $inviteId);
+    } catch (Throwable $e) {
+        json_response(['ok' => false, 'error' => 'Invite tracking is not available yet. Run the team_invites migration.'], 500);
+    }
+    if (!$invite) {
+        json_response(['ok' => false, 'error' => 'Invite not found.'], 404);
+    }
+    if ((int) $invite['invited_by_user_id'] !== $uid) {
+        json_response(['ok' => false, 'error' => 'Only the invite owner can resend this invite.'], 403);
+    }
+    if ((string) $invite['status'] === 'accepted') {
+        json_response(['ok' => false, 'error' => 'Invite already accepted.'], 409);
+    }
+
+    $team = fetch_team_for_invite_email($pdo, $teamId);
+    if (!$team) {
+        json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+    }
+    $message = trim((string) ($invite['message_preview'] ?? ''));
+    $senderName = (string) ($_SESSION['display_name'] ?? 'A team member');
+    $recipientEmail = strtolower(trim((string) ($invite['email'] ?? '')));
+
+    $ok = send_team_invite_email($team, $senderName, $recipientEmail, $message);
+    if (!$ok) {
+        error_log('invite_resend send failed for team_id=' . $teamId . ' invite_id=' . $inviteId . ' email=' . $recipientEmail);
+        json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
+    }
+
+    $updStmt = $pdo->prepare(
+        'UPDATE team_invites
+         SET send_count = send_count + 1,
+             last_sent_at = UTC_TIMESTAMP(),
+             status = IF(status = "accepted", "accepted", "pending")
+         WHERE id = ? AND team_id = ?'
+    );
+    $updStmt->execute([$inviteId, $teamId]);
+
+    $invites = list_team_invites($pdo, $teamId, $uid);
+    json_response(['ok' => true, 'invites' => $invites]);
+}
+
+function handle_invite_revoke(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $inviteId = (int) ($input['invite_id'] ?? 0);
+    if ($teamId <= 0 || $inviteId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id and invite_id are required.'], 422);
+    }
+    require_team_membership($pdo, $uid, $teamId);
+
+    try {
+        $invite = fetch_team_invite_by_id($pdo, $teamId, $inviteId);
+    } catch (Throwable $e) {
+        json_response(['ok' => false, 'error' => 'Invite tracking is not available yet. Run the team_invites migration.'], 500);
+    }
+    if (!$invite) {
+        json_response(['ok' => false, 'error' => 'Invite not found.'], 404);
+    }
+    if ((int) $invite['invited_by_user_id'] !== $uid) {
+        json_response(['ok' => false, 'error' => 'Only the invite owner can revoke this invite.'], 403);
+    }
+    if ((string) $invite['status'] === 'accepted') {
+        json_response(['ok' => false, 'error' => 'Invite already accepted and cannot be revoked.'], 409);
+    }
+
+    $updStmt = $pdo->prepare(
+        'UPDATE team_invites
+         SET status = "revoked"
+         WHERE id = ? AND team_id = ?'
+    );
+    $updStmt->execute([$inviteId, $teamId]);
+
+    $invites = list_team_invites($pdo, $teamId, $uid);
+    json_response(['ok' => true, 'invites' => $invites]);
+}
+
 function handle_invite_email(PDO $pdo): void
 {
     require_method('POST');
@@ -1424,74 +1599,15 @@ function handle_invite_email(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'Please wait a few seconds before sending another invite.'], 429);
     }
 
-    try {
-        $teamStmt = $pdo->prepare('SELECT name, join_code, logo_path FROM teams WHERE id = ? LIMIT 1');
-        $teamStmt->execute([$teamId]);
-        $team = $teamStmt->fetch();
-    } catch (Throwable $e) {
-        // Backward-compatible fallback when logo_path migration has not been applied yet.
-        $teamStmt = $pdo->prepare('SELECT name, join_code, NULL AS logo_path FROM teams WHERE id = ? LIMIT 1');
-        $teamStmt->execute([$teamId]);
-        $team = $teamStmt->fetch();
-    }
+    $team = fetch_team_for_invite_email($pdo, $teamId);
     if (!$team) {
         json_response(['ok' => false, 'error' => 'Team not found.'], 404);
     }
 
-    $appUrl = APP_PUBLIC_URL;
-    $inviteUrl = $appUrl . '/?join=' . rawurlencode((string) $team['join_code']);
     $senderName = (string) ($_SESSION['display_name'] ?? 'A team member');
-    $brandName = APP_BRAND_NAME;
-    $teamLogoPath = trim((string) ($team['logo_path'] ?? ''));
-    $logoUrl = $teamLogoPath !== '' ? absolute_public_url($teamLogoPath) : default_brand_logo_url();
-
-    $subject = sprintf('Invitation to join %s on %s', (string) $team['name'], $brandName);
-    $plainLines = [
-        sprintf('%s invited you to join "%s" on %s.', $senderName, (string) $team['name'], $brandName),
-        '',
-        sprintf('Join code: %s', (string) $team['join_code']),
-        sprintf('Direct link: %s', $inviteUrl),
-    ];
-    if ($message !== '') {
-        $plainLines[] = '';
-        $plainLines[] = 'Personal note:';
-        $plainLines[] = $message;
-    }
-    $plainLines[] = '';
-    $plainLines[] = 'See you at the rink.';
-    $plainText = implode("\r\n", $plainLines);
-
-    $senderEsc = htmlspecialchars($senderName, ENT_QUOTES, 'UTF-8');
-    $teamEsc = htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8');
-    $codeEsc = htmlspecialchars((string) $team['join_code'], ENT_QUOTES, 'UTF-8');
-    $linkEsc = htmlspecialchars($inviteUrl, ENT_QUOTES, 'UTF-8');
-    $messageEsc = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-    $personalNoteHtml = $message !== ''
-        ? '<p style="margin:16px 0 6px;color:#334;">Personal note:</p><div style="background:#f7f8fc;border-radius:10px;padding:10px 12px;color:#25324a;">' . $messageEsc . '</div>'
-        : '';
-    $inviteBodyHtml = '
-<h2 style="margin:0 0 12px;color:#0f2f59;">You are invited to join ' . $teamEsc . '</h2>
-<p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . htmlspecialchars($brandName, ENT_QUOTES, 'UTF-8') . '.</p>
-<p style="margin:0 0 6px;color:#2e3c56;"><strong>Join code:</strong> ' . $codeEsc . '</p>
-<p style="margin:0 0 18px;"><a href="' . $linkEsc . '" style="display:inline-block;background:#ff5a2a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Open Invite Link</a></p>
-' . $personalNoteHtml . '
-<p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>';
-    $html = email_shell_html(
-        'Team Invite',
-        'Join ' . (string) $team['name'],
-        $inviteBodyHtml,
-        '#133056',
-        '#1f5e94',
-        $logoUrl
-    );
-
-    $ok = send_multipart_email($email, $subject, $plainText, $html);
+    $ok = send_team_invite_email($team, $senderName, $email, $message);
     if (!$ok) {
-        error_log('invite_email multipart send failed for team_id=' . $teamId . ' email=' . $email);
-        $ok = send_plain_email($email, $subject, $plainText);
-    }
-    if (!$ok) {
-        error_log('invite_email plain-text fallback send failed for team_id=' . $teamId . ' email=' . $email);
+        error_log('invite_email send failed for team_id=' . $teamId . ' email=' . $email);
         json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
     }
 
@@ -1591,6 +1707,12 @@ switch ($action) {
     case 'invite_email':
         handle_invite_email($pdo);
         break;
+    case 'invite_resend':
+        handle_invite_resend($pdo);
+        break;
+    case 'invite_revoke':
+        handle_invite_revoke($pdo);
+        break;
     default:
         json_response([
             'ok' => true,
@@ -1617,7 +1739,9 @@ switch ($action) {
                 'media_external',
                 'media_delete',
                 'media_delete_batch',
-                'invite_email'
+                'invite_email',
+                'invite_resend',
+                'invite_revoke'
             ]
         ]);
 }

@@ -1009,6 +1009,13 @@ textarea:focus {
   gap: 0.2rem;
 }
 
+.invite-status-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 .invite-status-pill {
   display: inline-flex;
   align-items: center;

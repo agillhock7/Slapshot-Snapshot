@@ -210,6 +210,12 @@ function inviteStatusLabel(status) {
   return "Pending";
 }
 
+function canManageInvite(invite) {
+  if (!invite) return false;
+  if (invite.can_manage === true || invite.can_manage === 1 || invite.can_manage === "1") return true;
+  return Number(invite.invited_by_user_id || 0) === Number(user.value?.id || 0);
+}
+
 function cardImageSrc(item) {
   return item.thumbnail_url || item.file_path || "/video-placeholder.svg";
 }
@@ -668,10 +674,35 @@ async function sendInviteEmail() {
     });
     emailInviteForm.email = "";
     emailInviteForm.message = "";
-    if (canDeleteTeam.value) {
+    if (activeTeamId.value) {
       await loadTeamMembers();
     }
     setBanner("success", "Invite email sent.");
+  });
+}
+
+async function resendInvite(invite) {
+  if (!activeTeamId.value || !invite || !canManageInvite(invite)) return;
+  await withBusy(async () => {
+    const payload = await apiPost("invite_resend", {
+      team_id: activeTeamId.value,
+      invite_id: invite.id
+    });
+    teamInvites.value = payload.invites || teamInvites.value;
+    setBanner("success", "Invite resent.");
+  });
+}
+
+async function revokeInvite(invite) {
+  if (!activeTeamId.value || !invite || !canManageInvite(invite)) return;
+  if (!window.confirm(`Revoke invite for ${invite.email}?`)) return;
+  await withBusy(async () => {
+    const payload = await apiPost("invite_revoke", {
+      team_id: activeTeamId.value,
+      invite_id: invite.id
+    });
+    teamInvites.value = payload.invites || teamInvites.value;
+    setBanner("success", "Invite revoked.");
   });
 }
 
@@ -1394,7 +1425,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <article v-if="canDeleteTeam" class="panel invite-status-panel">
+        <article class="panel invite-status-panel">
           <h4>Invite Status</h4>
           <p class="meta">Track invite emails and see when someone joins the team.</p>
           <p v-if="!inviteTrackingEnabled" class="meta">
@@ -1412,6 +1443,24 @@ onBeforeUnmount(() => {
                 </p>
                 <p class="meta">Invited by {{ invite.invited_by_name || "Team owner" }}</p>
                 <p v-if="invite.message_preview" class="meta">Note: {{ invite.message_preview }}</p>
+                <div v-if="canManageInvite(invite)" class="invite-status-actions">
+                  <button
+                    class="btn btn-ghost"
+                    type="button"
+                    :disabled="busy || invite.status === 'accepted'"
+                    @click="resendInvite(invite)"
+                  >
+                    Resend
+                  </button>
+                  <button
+                    class="btn btn-danger"
+                    type="button"
+                    :disabled="busy || invite.status !== 'pending'"
+                    @click="revokeInvite(invite)"
+                  >
+                    Revoke
+                  </button>
+                </div>
               </div>
               <div class="invite-status-side">
                 <span :class="['invite-status-pill', `is-${invite.status}`]">{{ inviteStatusLabel(invite.status) }}</span>

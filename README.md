@@ -10,7 +10,8 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Direct invite links (`?join=CODE`) with auto-join flow
 - One-click invite actions (copy/share/text/email) plus server-sent email invites
 - Team member management (owner/admin/member roles)
-- Owner invite-status tracking (pending/joined) inside Team Members
+- Invite-status tracking (pending/joined) inside Team Members
+- Invite owner controls: resend and revoke only for the sender of that invite
 - Account management (display name + password update)
 - Support-reviewed email change requests with approve/deny workflow
 - Team branding with owner/admin logo upload + removal
