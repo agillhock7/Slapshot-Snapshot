@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS email_change_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  current_email VARCHAR(190) NOT NULL,
+  requested_email VARCHAR(190) NOT NULL,
+  reason TEXT NULL,
+  status ENUM('pending', 'approved', 'denied', 'expired') NOT NULL DEFAULT 'pending',
+  approve_token_hash CHAR(64) NOT NULL,
+  deny_token_hash CHAR(64) NOT NULL,
+  requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  decided_at TIMESTAMP NULL DEFAULT NULL,
+  decided_by_ip VARCHAR(45) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_email_change_approve_token (approve_token_hash),
+  UNIQUE KEY uq_email_change_deny_token (deny_token_hash),
+  KEY idx_email_change_user_status (user_id, status),
+  KEY idx_email_change_requested_email (requested_email),
+  CONSTRAINT fk_email_change_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -126,6 +126,399 @@ function handle_logout(): void
     json_response(['ok' => true]);
 }
 
+function send_multipart_email(string $to, string $subject, string $plainText, string $htmlBody, string $replyTo = ''): bool
+{
+    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        $host = (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: 'snap.pucc.us');
+    }
+    $fromAddress = 'noreply@' . $host;
+    $reply = trim($replyTo) !== '' ? trim($replyTo) : $fromAddress;
+    $boundary = '=_slapshot_' . bin2hex(random_bytes(8));
+    $headers = [
+        'From: ' . APP_BRAND_NAME . ' <' . $fromAddress . '>',
+        'Reply-To: ' . $reply,
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
+    ];
+
+    $body = '--' . $boundary . "\r\n";
+    $body .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
+    $body .= $plainText . "\r\n\r\n";
+    $body .= '--' . $boundary . "\r\n";
+    $body .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
+    $body .= $htmlBody . "\r\n\r\n";
+    $body .= '--' . $boundary . "--\r\n";
+
+    return @mail($to, $subject, $body, implode("\r\n", $headers));
+}
+
+function request_ip_address(): string
+{
+    $forwarded = trim((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+    if ($forwarded === '') {
+        $forwarded = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    }
+    return substr($forwarded, 0, 45);
+}
+
+function handle_account_update_profile(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+
+    $displayName = trim((string) ($input['display_name'] ?? ''));
+    $currentPassword = (string) ($input['current_password'] ?? '');
+    $newPassword = (string) ($input['new_password'] ?? '');
+    $newPasswordConfirm = (string) ($input['new_password_confirm'] ?? '');
+
+    if (strlen($displayName) < 2 || strlen($displayName) > 120) {
+        json_response(['ok' => false, 'error' => 'Display name must be 2-120 characters.'], 422);
+    }
+    if ($newPassword !== '') {
+        if (strlen($newPassword) < 8) {
+            json_response(['ok' => false, 'error' => 'New password must be at least 8 characters.'], 422);
+        }
+        if ($newPassword !== $newPasswordConfirm) {
+            json_response(['ok' => false, 'error' => 'New password confirmation does not match.'], 422);
+        }
+        if ($currentPassword === '') {
+            json_response(['ok' => false, 'error' => 'Current password is required to change password.'], 422);
+        }
+    }
+
+    $userStmt = $pdo->prepare('SELECT id, password_hash FROM users WHERE id = ? LIMIT 1');
+    $userStmt->execute([$uid]);
+    $account = $userStmt->fetch();
+    if (!$account) {
+        json_response(['ok' => false, 'error' => 'User not found.'], 404);
+    }
+
+    $newHash = null;
+    if ($newPassword !== '') {
+        if (!password_verify($currentPassword, (string) $account['password_hash'])) {
+            json_response(['ok' => false, 'error' => 'Current password is incorrect.'], 403);
+        }
+        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+    }
+
+    if ($newHash !== null) {
+        $stmt = $pdo->prepare('UPDATE users SET display_name = ?, password_hash = ? WHERE id = ?');
+        $stmt->execute([$displayName, $newHash, $uid]);
+    } else {
+        $stmt = $pdo->prepare('UPDATE users SET display_name = ? WHERE id = ?');
+        $stmt->execute([$displayName, $uid]);
+    }
+
+    $_SESSION['display_name'] = $displayName;
+    $context = get_user_context($pdo, $uid);
+    json_response(['ok' => true, 'user' => $context['user'], 'teams' => $context['teams']]);
+}
+
+function handle_account_email_change_request(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+
+    $requestedEmail = strtolower(trim((string) ($input['requested_email'] ?? '')));
+    $reason = trim((string) ($input['reason'] ?? ''));
+    if (!filter_var($requestedEmail, FILTER_VALIDATE_EMAIL)) {
+        json_response(['ok' => false, 'error' => 'Valid requested email is required.'], 422);
+    }
+    if (strlen($reason) > 1500) {
+        json_response(['ok' => false, 'error' => 'Reason must be 1500 characters or fewer.'], 422);
+    }
+
+    $userStmt = $pdo->prepare('SELECT id, email, display_name FROM users WHERE id = ? LIMIT 1');
+    $userStmt->execute([$uid]);
+    $account = $userStmt->fetch();
+    if (!$account) {
+        json_response(['ok' => false, 'error' => 'User not found.'], 404);
+    }
+    $currentEmail = strtolower((string) $account['email']);
+    if ($requestedEmail === $currentEmail) {
+        json_response(['ok' => false, 'error' => 'Requested email matches your current login email.'], 422);
+    }
+
+    $existsStmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+    $existsStmt->execute([$requestedEmail, $uid]);
+    if ($existsStmt->fetchColumn() !== false) {
+        json_response(['ok' => false, 'error' => 'That email is already used by another account.'], 409);
+    }
+
+    $now = time();
+    $window = $_SESSION['email_change_window'] ?? ['start' => $now, 'count' => 0];
+    if (!is_array($window) || (int) ($window['start'] ?? 0) < ($now - 86400)) {
+        $window = ['start' => $now, 'count' => 0];
+    }
+    if ((int) ($window['count'] ?? 0) >= 5) {
+        json_response(['ok' => false, 'error' => 'Email change request limit reached. Try again tomorrow.'], 429);
+    }
+    $lastSent = (int) ($_SESSION['email_change_last_sent'] ?? 0);
+    if ($lastSent > ($now - 30)) {
+        json_response(['ok' => false, 'error' => 'Please wait before sending another request.'], 429);
+    }
+
+    $approveToken = bin2hex(random_bytes(24));
+    $denyToken = bin2hex(random_bytes(24));
+    $approveHash = hash('sha256', $approveToken);
+    $denyHash = hash('sha256', $denyToken);
+    $expiresAt = gmdate('Y-m-d H:i:s', $now + (7 * 86400));
+    $requestIp = request_ip_address();
+    $requestUserAgent = substr(trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? 'unknown')), 0, 350);
+    $requestId = 0;
+    try {
+        $pendingStmt = $pdo->prepare(
+            'SELECT id FROM email_change_requests
+             WHERE user_id = ? AND status = "pending" AND expires_at >= UTC_TIMESTAMP()
+             ORDER BY id DESC LIMIT 1'
+        );
+        $pendingStmt->execute([$uid]);
+        if ($pendingStmt->fetchColumn() !== false) {
+            json_response(['ok' => false, 'error' => 'You already have a pending email change request.'], 409);
+        }
+
+        $pdo->beginTransaction();
+        $insStmt = $pdo->prepare(
+            'INSERT INTO email_change_requests
+             (user_id, current_email, requested_email, reason, status, approve_token_hash, deny_token_hash, expires_at)
+             VALUES (?, ?, ?, ?, "pending", ?, ?, ?)'
+        );
+        $insStmt->execute([$uid, $currentEmail, $requestedEmail, $reason !== '' ? $reason : null, $approveHash, $denyHash, $expiresAt]);
+        $requestId = (int) $pdo->lastInsertId();
+
+        $approveUrl = APP_PUBLIC_URL . '/api/index.php?action=account_email_request_decision&decision=approve&token=' . rawurlencode($approveToken);
+        $denyUrl = APP_PUBLIC_URL . '/api/index.php?action=account_email_request_decision&decision=deny&token=' . rawurlencode($denyToken);
+        $requestedByName = htmlspecialchars((string) ($account['display_name'] ?? 'Unknown'), ENT_QUOTES, 'UTF-8');
+        $currentEsc = htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8');
+        $requestedEsc = htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8');
+        $ipEsc = htmlspecialchars($requestIp, ENT_QUOTES, 'UTF-8');
+        $uaEsc = htmlspecialchars($requestUserAgent, ENT_QUOTES, 'UTF-8');
+        $reasonEsc = $reason !== ''
+            ? nl2br(htmlspecialchars($reason, ENT_QUOTES, 'UTF-8'))
+            : '<em>No reason provided.</em>';
+        $approveEsc = htmlspecialchars($approveUrl, ENT_QUOTES, 'UTF-8');
+        $denyEsc = htmlspecialchars($denyUrl, ENT_QUOTES, 'UTF-8');
+        $subject = sprintf('Email change approval required (%s #%d)', APP_BRAND_NAME, $requestId);
+        $plainText = implode("\r\n", [
+            APP_BRAND_NAME . ' email change request requires review.',
+            '',
+            'Request ID: #' . $requestId,
+            'User ID: ' . $uid,
+            'Display name: ' . (string) ($account['display_name'] ?? 'Unknown'),
+            'Current email: ' . $currentEmail,
+            'Requested email: ' . $requestedEmail,
+            'Request IP: ' . $requestIp,
+            'User Agent: ' . $requestUserAgent,
+            'Requested at (UTC): ' . gmdate('Y-m-d H:i:s'),
+            'Expires at (UTC): ' . gmdate('Y-m-d H:i:s', strtotime($expiresAt) ?: $now),
+            '',
+            'Reason:',
+            $reason !== '' ? $reason : '(No reason provided)',
+            '',
+            'Approve: ' . $approveUrl,
+            'Deny: ' . $denyUrl,
+        ]);
+        $htmlBody = '<!doctype html><html><body style="margin:0;background:#f4f6ff;font-family:Arial,sans-serif;color:#1b2940;">
+<div style="max-width:700px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;padding:20px;">
+<h2 style="margin:0 0 12px;">Email Change Request Review</h2>
+<p style="margin:0 0 14px;">A user requested a login email change on <strong>' . htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8') . '</strong>.</p>
+<table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
+<tr><td style="padding:6px 0;color:#4f5e78;">Request ID</td><td style="padding:6px 0;"><strong>#' . $requestId . '</strong></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">User ID</td><td style="padding:6px 0;"><strong>' . $uid . '</strong></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">Display Name</td><td style="padding:6px 0;"><strong>' . $requestedByName . '</strong></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">Current Email</td><td style="padding:6px 0;"><code>' . $currentEsc . '</code></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">Requested Email</td><td style="padding:6px 0;"><code>' . $requestedEsc . '</code></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">Request IP</td><td style="padding:6px 0;"><code>' . $ipEsc . '</code></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">User Agent</td><td style="padding:6px 0;"><span style="word-break:break-word;">' . $uaEsc . '</span></td></tr>
+<tr><td style="padding:6px 0;color:#4f5e78;">Expires</td><td style="padding:6px 0;">' . htmlspecialchars(gmdate('Y-m-d H:i:s', strtotime($expiresAt) ?: $now) . ' UTC', ENT_QUOTES, 'UTF-8') . '</td></tr>
+</table>
+<div style="margin:0 0 16px;padding:10px 12px;background:#f8faff;border:1px solid #e3e9fb;border-radius:10px;">
+<p style="margin:0 0 6px;color:#4f5e78;">Reason</p>
+<div style="color:#1f2f46;">' . $reasonEsc . '</div>
+</div>
+<p style="margin:0 0 10px;"><a href="' . $approveEsc . '" style="display:inline-block;background:#1f8a4d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Approve Email Change</a></p>
+<p style="margin:0 0 16px;"><a href="' . $denyEsc . '" style="display:inline-block;background:#b22d2d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Deny Request</a></p>
+<p style="margin:0;color:#67758f;font-size:12px;">Each link is single-use and expires automatically.</p>
+</div></body></html>';
+
+        $sent = send_multipart_email(SUPPORT_EMAIL, $subject, $plainText, $htmlBody, SUPPORT_EMAIL);
+        if (!$sent) {
+            throw new RuntimeException('Unable to send support approval email.');
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        if (($e instanceof PDOException) && (string) $e->getCode() === '42S02') {
+            json_response([
+                'ok' => false,
+                'error' => 'Email request table missing. Run database/migrations/2026-02-14-email-change-requests.sql first.'
+            ], 500);
+        }
+        json_response(['ok' => false, 'error' => 'Unable to submit email change request right now.'], 500);
+    }
+
+    $_SESSION['email_change_last_sent'] = $now;
+    $window['count'] = (int) ($window['count'] ?? 0) + 1;
+    $_SESSION['email_change_window'] = $window;
+
+    json_response([
+        'ok' => true,
+        'message' => 'Email change request submitted. Support will review it shortly.',
+        'request_id' => $requestId
+    ]);
+}
+
+function handle_account_email_request_decision(PDO $pdo): void
+{
+    require_method('GET');
+    $decision = strtolower(trim((string) ($_GET['decision'] ?? '')));
+    $token = trim((string) ($_GET['token'] ?? ''));
+    if (!in_array($decision, ['approve', 'deny'], true)) {
+        json_response(['ok' => false, 'error' => 'decision must be approve or deny.'], 422);
+    }
+    if ($token === '' || strlen($token) < 20) {
+        json_response(['ok' => false, 'error' => 'Missing or invalid token.'], 422);
+    }
+
+    $tokenHash = hash('sha256', $token);
+    $stmt = $pdo->prepare(
+        'SELECT *
+         FROM email_change_requests
+         WHERE approve_token_hash = ? OR deny_token_hash = ?
+         ORDER BY id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([$tokenHash, $tokenHash]);
+    $request = $stmt->fetch();
+    if (!$request) {
+        json_response(['ok' => false, 'error' => 'Request token not found.'], 404);
+    }
+
+    $matchesApprove = hash_equals((string) $request['approve_token_hash'], $tokenHash);
+    $matchesDeny = hash_equals((string) $request['deny_token_hash'], $tokenHash);
+    if (($decision === 'approve' && !$matchesApprove) || ($decision === 'deny' && !$matchesDeny)) {
+        json_response(['ok' => false, 'error' => 'Token does not match requested decision action.'], 403);
+    }
+
+    $requestId = (int) $request['id'];
+    $status = (string) $request['status'];
+    if ($status !== 'pending') {
+        json_response(['ok' => false, 'error' => 'This request has already been processed.'], 409);
+    }
+
+    $nowUtc = gmdate('Y-m-d H:i:s');
+    $requestIp = request_ip_address();
+    $resultMessage = '';
+    $notifySubject = '';
+    $notifyPlain = '';
+    $notifyHtml = '';
+    $notifyTo = [];
+
+    $pdo->beginTransaction();
+    try {
+        $lockStmt = $pdo->prepare('SELECT * FROM email_change_requests WHERE id = ? LIMIT 1 FOR UPDATE');
+        $lockStmt->execute([$requestId]);
+        $locked = $lockStmt->fetch();
+        if (!$locked) {
+            throw new RuntimeException('Request not found while locking.');
+        }
+        if ((string) $locked['status'] !== 'pending') {
+            $pdo->commit();
+            json_response(['ok' => false, 'error' => 'This request has already been processed.'], 409);
+        }
+
+        $expiresAt = (string) $locked['expires_at'];
+        if ($expiresAt !== '' && strtotime($expiresAt) !== false && strtotime($expiresAt) < time()) {
+            $expireStmt = $pdo->prepare(
+                'UPDATE email_change_requests SET status = "expired", decided_at = ?, decided_by_ip = ? WHERE id = ?'
+            );
+            $expireStmt->execute([$nowUtc, $requestIp, $requestId]);
+            $pdo->commit();
+            json_response(['ok' => false, 'error' => 'This request has expired.'], 410);
+        }
+
+        $userId = (int) $locked['user_id'];
+        $currentEmail = strtolower((string) $locked['current_email']);
+        $requestedEmail = strtolower((string) $locked['requested_email']);
+
+        if ($decision === 'approve') {
+            $conflictStmt = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+            $conflictStmt->execute([$requestedEmail, $userId]);
+            if ($conflictStmt->fetchColumn() !== false) {
+                $denyStmt = $pdo->prepare(
+                    'UPDATE email_change_requests SET status = "denied", decided_at = ?, decided_by_ip = ? WHERE id = ?'
+                );
+                $denyStmt->execute([$nowUtc, $requestIp, $requestId]);
+                $pdo->commit();
+                json_response(['ok' => false, 'error' => 'Cannot approve: requested email is already in use.'], 409);
+            }
+
+            $userUpdateStmt = $pdo->prepare('UPDATE users SET email = ? WHERE id = ?');
+            $userUpdateStmt->execute([$requestedEmail, $userId]);
+
+            $approveStmt = $pdo->prepare(
+                'UPDATE email_change_requests SET status = "approved", decided_at = ?, decided_by_ip = ? WHERE id = ?'
+            );
+            $approveStmt->execute([$nowUtc, $requestIp, $requestId]);
+
+            $resultMessage = 'Email change approved and applied.';
+            $notifySubject = APP_BRAND_NAME . ': your email change was approved';
+            $notifyPlain = implode("\r\n", [
+                'Your email change request was approved.',
+                '',
+                'Old email: ' . $currentEmail,
+                'New email: ' . $requestedEmail,
+                'Request ID: #' . $requestId,
+            ]);
+            $notifyHtml = '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#17253d;">
+<p>Your email change request was approved.</p>
+<p><strong>Old email:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>New email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
+</body></html>';
+            $notifyTo = [$requestedEmail, $currentEmail];
+        } else {
+            $denyStmt = $pdo->prepare(
+                'UPDATE email_change_requests SET status = "denied", decided_at = ?, decided_by_ip = ? WHERE id = ?'
+            );
+            $denyStmt->execute([$nowUtc, $requestIp, $requestId]);
+            $resultMessage = 'Email change request denied.';
+            $notifySubject = APP_BRAND_NAME . ': your email change request was denied';
+            $notifyPlain = implode("\r\n", [
+                'Your email change request was denied.',
+                '',
+                'Current email remains: ' . $currentEmail,
+                'Requested email: ' . $requestedEmail,
+                'Request ID: #' . $requestId,
+            ]);
+            $notifyHtml = '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#17253d;">
+<p>Your email change request was denied.</p>
+<p><strong>Current email remains:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Requested email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
+</body></html>';
+            $notifyTo = [$currentEmail];
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        json_response(['ok' => false, 'error' => 'Unable to process decision right now.'], 500);
+    }
+
+    foreach (array_values(array_unique($notifyTo)) as $targetEmail) {
+        if (!filter_var($targetEmail, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        send_multipart_email($targetEmail, $notifySubject, $notifyPlain, $notifyHtml, SUPPORT_EMAIL);
+    }
+
+    json_response(['ok' => true, 'result' => $decision, 'message' => $resultMessage, 'request_id' => $requestId]);
+}
+
 function handle_create_team(PDO $pdo): void
 {
     require_method('POST');
@@ -849,6 +1242,15 @@ switch ($action) {
     case 'auth_logout':
         handle_logout();
         break;
+    case 'account_update_profile':
+        handle_account_update_profile($pdo);
+        break;
+    case 'account_email_change_request':
+        handle_account_email_change_request($pdo);
+        break;
+    case 'account_email_request_decision':
+        handle_account_email_request_decision($pdo);
+        break;
     case 'team_create':
         handle_create_team($pdo);
         break;
@@ -897,6 +1299,9 @@ switch ($action) {
                 'auth_register',
                 'auth_login',
                 'auth_logout',
+                'account_update_profile',
+                'account_email_change_request',
+                'account_email_request_decision',
                 'team_create',
                 'team_join',
                 'team_update',

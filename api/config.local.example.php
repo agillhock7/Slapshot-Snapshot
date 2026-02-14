@@ -10,3 +10,4 @@ define('LOCAL_DB_PASS', 'your_db_password');
 define('LOCAL_APP_PUBLIC_URL', 'https://snap.pucc.us');
 define('LOCAL_APP_BRAND_NAME', 'Slapshot Snapshot');
 define('LOCAL_APP_INVITE_LOGO_URL', '');
+define('LOCAL_SUPPORT_EMAIL', 'support@pucc.us');

@@ -726,6 +726,21 @@ textarea {
   gap: 0.8rem;
 }
 
+.account-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0.85rem;
+}
+
+.account-card {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.account-card h3 {
+  margin: 0;
+}
+
 .team-admin h3,
 .team-admin h4 {
   margin: 0;
@@ -987,6 +1002,10 @@ textarea {
   .invite-graphic {
     max-height: 132px;
     object-fit: cover;
+  }
+
+  .account-layout {
+    grid-template-columns: 1fr;
   }
 
   .app-nav button span {

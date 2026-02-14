@@ -10,6 +10,8 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Direct invite links (`?join=CODE`) with auto-join flow
 - One-click invite actions (copy/share/text/email) plus server-sent email invites
 - Team member management (owner/admin/member roles)
+- Account management (display name + password update)
+- Support-reviewed email change requests with approve/deny workflow
 - Team profile metadata (age group, season year, level, rink, city, notes)
 - Team update and owner-only delete with double-confirm safeguard
 - Premium gallery experience: sort, group, rich detail modal, batch actions
@@ -28,7 +30,9 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 
 1. Create a MySQL database/user in cPanel.
 2. Import `database/schema.sql` into that database.
-3. If upgrading an existing install, run `database/migrations/2026-02-14-team-metadata.sql`.
+3. If upgrading an existing install, run:
+   - `database/migrations/2026-02-14-team-metadata.sql`
+   - `database/migrations/2026-02-14-email-change-requests.sql`
 4. Copy `api/config.local.example.php` to `api/config.local.php`.
 5. Fill DB credentials in `api/config.local.php`.
 6. Build frontend:
@@ -75,6 +79,8 @@ npm run build
 The `invite_email` API action uses PHP `mail()`. On cPanel this typically works via local sendmail.
 If invite sending fails, verify outbound mail settings and domain email policies (SPF/DKIM).
 
+The account email-change workflow also uses PHP `mail()` and sends support approval links to `support@pucc.us` by default.
+
 ## Image thumbnail optimization
 
 Photo uploads generate server-side thumbnails (used in gallery cards) when PHP GD functions are available.
@@ -87,6 +93,7 @@ In `api/config.local.php`, you can set:
 - `LOCAL_APP_PUBLIC_URL`
 - `LOCAL_APP_BRAND_NAME`
 - `LOCAL_APP_INVITE_LOGO_URL`
+- `LOCAL_SUPPORT_EMAIL`
 
 These values are used in branded HTML invite emails.
 

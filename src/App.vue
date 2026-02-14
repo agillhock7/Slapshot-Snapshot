@@ -75,6 +75,16 @@ const emailInviteForm = reactive({
   email: "",
   message: ""
 });
+const accountProfileForm = reactive({
+  display_name: "",
+  current_password: "",
+  new_password: "",
+  new_password_confirm: ""
+});
+const emailChangeForm = reactive({
+  requested_email: "",
+  reason: ""
+});
 
 const isAuthenticated = computed(() => !!user.value);
 const activeTeam = computed(() =>
@@ -279,6 +289,7 @@ function applySession(payload) {
   }
   const team = teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)) || null;
   syncTeamProfileForm(team);
+  syncAccountProfileForm(user.value);
 }
 
 function syncTeamProfileForm(team) {
@@ -291,6 +302,13 @@ function syncTeamProfileForm(team) {
   teamProfileForm.team_notes = team?.team_notes || "";
   deleteTeamForm.confirm_team_name = "";
   deleteTeamForm.confirm_word = "";
+}
+
+function syncAccountProfileForm(account) {
+  accountProfileForm.display_name = account?.display_name || "";
+  accountProfileForm.current_password = "";
+  accountProfileForm.new_password = "";
+  accountProfileForm.new_password_confirm = "";
 }
 
 function resetGalleryPagination() {
@@ -447,6 +465,9 @@ async function logout() {
     mediaStats.photos = 0;
     mediaStats.videos = 0;
     teamMembers.value = [];
+    syncAccountProfileForm(null);
+    emailChangeForm.requested_email = "";
+    emailChangeForm.reason = "";
     localStorage.removeItem("slapshot_active_team_id");
   });
 }
@@ -617,6 +638,33 @@ async function sendInviteEmail() {
     emailInviteForm.email = "";
     emailInviteForm.message = "";
     setBanner("success", "Invite email sent.");
+  });
+}
+
+async function updateAccountProfile() {
+  await withBusy(async () => {
+    const payload = await apiPost("account_update_profile", {
+      display_name: accountProfileForm.display_name,
+      current_password: accountProfileForm.current_password,
+      new_password: accountProfileForm.new_password,
+      new_password_confirm: accountProfileForm.new_password_confirm
+    });
+    user.value = payload.user || user.value;
+    teams.value = payload.teams || teams.value;
+    syncAccountProfileForm(user.value);
+    setBanner("success", "Account profile updated.");
+  });
+}
+
+async function requestEmailChange() {
+  await withBusy(async () => {
+    const payload = await apiPost("account_email_change_request", {
+      requested_email: emailChangeForm.requested_email,
+      reason: emailChangeForm.reason
+    });
+    emailChangeForm.requested_email = "";
+    emailChangeForm.reason = "";
+    setBanner("success", payload.message || "Email change request sent for support review.");
   });
 }
 
@@ -861,6 +909,10 @@ onBeforeUnmount(() => {
         <button :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">
           <img class="nav-icon" src="/icon-nav-teams.svg" alt="" />
           <span>Teams</span>
+        </button>
+        <button :class="{ active: activeTab === 'account' }" @click="activeTab = 'account'">
+          <img class="nav-icon" src="/icon-nav-account.svg" alt="" />
+          <span>Account</span>
         </button>
       </nav>
 
@@ -1269,6 +1321,81 @@ onBeforeUnmount(() => {
           >
             Delete Team
           </button>
+        </article>
+      </section>
+
+      <section v-if="activeTab === 'account'" class="account-layout">
+        <article class="panel padded account-card">
+          <h3>Profile</h3>
+          <p class="meta">Manage your account identity and password used to access Slapshot Snapshot.</p>
+          <form class="stack compact" @submit.prevent="updateAccountProfile">
+            <label>
+              <span>Display Name</span>
+              <input v-model="accountProfileForm.display_name" minlength="2" maxlength="120" required />
+            </label>
+            <div class="profile-grid">
+              <label>
+                <span>Current Password</span>
+                <input
+                  v-model="accountProfileForm.current_password"
+                  type="password"
+                  autocomplete="current-password"
+                  placeholder="Required only when changing password"
+                />
+              </label>
+              <label>
+                <span>New Password</span>
+                <input
+                  v-model="accountProfileForm.new_password"
+                  type="password"
+                  minlength="8"
+                  autocomplete="new-password"
+                  placeholder="Leave blank to keep current"
+                />
+              </label>
+              <label>
+                <span>Confirm New Password</span>
+                <input
+                  v-model="accountProfileForm.new_password_confirm"
+                  type="password"
+                  minlength="8"
+                  autocomplete="new-password"
+                  placeholder="Repeat new password"
+                />
+              </label>
+            </div>
+            <button class="btn" :disabled="busy">Save Profile</button>
+          </form>
+        </article>
+
+        <article class="panel padded account-card">
+          <h3>Email Change Request</h3>
+          <p class="meta">
+            Login email changes are reviewed manually by support. Submit your new email and reason below.
+            Support receives approve/deny links at <strong>support@pucc.us</strong>.
+          </p>
+          <form class="stack compact" @submit.prevent="requestEmailChange">
+            <label>
+              <span>Requested New Email</span>
+              <input
+                v-model="emailChangeForm.requested_email"
+                type="email"
+                autocomplete="email"
+                placeholder="new-email@example.com"
+                required
+              />
+            </label>
+            <label>
+              <span>Request Notes</span>
+              <textarea
+                v-model="emailChangeForm.reason"
+                rows="4"
+                maxlength="1500"
+                placeholder="Why this email should be updated (optional)."
+              />
+            </label>
+            <button class="btn btn-secondary" :disabled="busy">Submit Email Change Request</button>
+          </form>
         </article>
       </section>
     </section>

@@ -15,6 +15,7 @@ define('DB_PASS', getenv('DB_PASS') ?: (defined('LOCAL_DB_PASS') ? LOCAL_DB_PASS
 define('APP_PUBLIC_URL', getenv('APP_PUBLIC_URL') ?: (defined('LOCAL_APP_PUBLIC_URL') ? LOCAL_APP_PUBLIC_URL : 'https://snap.pucc.us'));
 define('APP_BRAND_NAME', getenv('APP_BRAND_NAME') ?: (defined('LOCAL_APP_BRAND_NAME') ? LOCAL_APP_BRAND_NAME : 'Slapshot Snapshot'));
 define('APP_INVITE_LOGO_URL', getenv('APP_INVITE_LOGO_URL') ?: (defined('LOCAL_APP_INVITE_LOGO_URL') ? LOCAL_APP_INVITE_LOGO_URL : ''));
+define('SUPPORT_EMAIL', getenv('SUPPORT_EMAIL') ?: (defined('LOCAL_SUPPORT_EMAIL') ? LOCAL_SUPPORT_EMAIL : 'support@pucc.us'));
 
 define('APP_ROOT', dirname(__DIR__));
 define('UPLOAD_ROOT', APP_ROOT . '/uploads');
