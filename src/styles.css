@@ -951,6 +951,25 @@ textarea {
   aspect-ratio: 16 / 9;
 }
 
+.site-footer {
+  margin-top: 1.1rem;
+  padding: 0.85rem 0.3rem 0.2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.site-footer p {
+  margin: 0;
+}
+
+.site-footer a {
+  color: var(--night);
+  font-weight: 700;
+}
+
 @keyframes reveal {
   from {
     opacity: 0;

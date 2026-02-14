@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiUpload } from "./api";
 const APP_URL = "https://snap.pucc.us";
 const PAGE_SIZE = 18;
 const API_MEDIA_PAGE_SIZE = 60;
+const currentYear = new Date().getFullYear();
 
 const loadingSession = ref(true);
 const busy = ref(false);
@@ -1511,5 +1512,13 @@ onBeforeUnmount(() => {
         <button class="btn btn-danger" @click="deleteMedia(modalItem.id)">Delete</button>
       </article>
     </section>
+
+    <footer class="site-footer">
+      <p>&copy; {{ currentYear }} Dark Horses USA</p>
+      <p>
+        deployed via Dark Horse Virtue Pro Suite host account.
+        <a href="https://darkhorsevirtue.io" target="_blank" rel="noopener noreferrer">https://darkhorsevirtue.io</a>
+      </p>
+    </footer>
   </div>
 </template>
