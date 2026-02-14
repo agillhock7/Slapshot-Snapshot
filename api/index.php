@@ -191,6 +191,115 @@ function handle_join_team(PDO $pdo): void
     json_response(['ok' => true, 'teams' => $context['teams'], 'joined_team_id' => $joinedTeamId]);
 }
 
+function require_team_admin_role(PDO $pdo, int $uid, int $teamId): string
+{
+    $role = require_team_membership($pdo, $uid, $teamId);
+    if (!in_array($role, ['owner', 'admin'], true)) {
+        json_response(['ok' => false, 'error' => 'Team admin permission required.'], 403);
+    }
+    return $role;
+}
+
+function list_team_members(PDO $pdo, int $teamId): array
+{
+    $stmt = $pdo->prepare(
+        'SELECT tm.id, tm.user_id, tm.role, tm.status, tm.created_at, u.display_name, u.email
+         FROM team_members tm
+         INNER JOIN users u ON u.id = tm.user_id
+         WHERE tm.team_id = ? AND tm.status = "active"
+         ORDER BY FIELD(tm.role, "owner", "admin", "member"), u.display_name'
+    );
+    $stmt->execute([$teamId]);
+    return $stmt->fetchAll();
+}
+
+function handle_team_members(PDO $pdo): void
+{
+    require_method('GET');
+    $uid = require_auth();
+    $teamId = (int) ($_GET['team_id'] ?? 0);
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+    require_team_membership($pdo, $uid, $teamId);
+    $members = list_team_members($pdo, $teamId);
+    json_response(['ok' => true, 'members' => $members]);
+}
+
+function handle_team_member_role(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $memberUserId = (int) ($input['member_user_id'] ?? 0);
+    $newRole = (string) ($input['role'] ?? '');
+    if ($teamId <= 0 || $memberUserId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id and member_user_id required.'], 422);
+    }
+    if (!in_array($newRole, ['admin', 'member'], true)) {
+        json_response(['ok' => false, 'error' => 'Role must be admin or member.'], 422);
+    }
+
+    $actorRole = require_team_admin_role($pdo, $uid, $teamId);
+    $targetStmt = $pdo->prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ? AND status = "active" LIMIT 1');
+    $targetStmt->execute([$teamId, $memberUserId]);
+    $targetRole = $targetStmt->fetchColumn();
+    if ($targetRole === false) {
+        json_response(['ok' => false, 'error' => 'Member not found.'], 404);
+    }
+    if ($memberUserId === $uid) {
+        json_response(['ok' => false, 'error' => 'You cannot edit your own role.'], 403);
+    }
+    if ($targetRole === 'owner') {
+        json_response(['ok' => false, 'error' => 'Owner role cannot be changed.'], 403);
+    }
+    if ($actorRole !== 'owner' && $targetRole === 'admin') {
+        json_response(['ok' => false, 'error' => 'Only owner can edit admins.'], 403);
+    }
+
+    $updateStmt = $pdo->prepare(
+        'UPDATE team_members SET role = ? WHERE team_id = ? AND user_id = ? AND status = "active"'
+    );
+    $updateStmt->execute([$newRole, $teamId, $memberUserId]);
+    json_response(['ok' => true, 'members' => list_team_members($pdo, $teamId)]);
+}
+
+function handle_team_member_remove(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $memberUserId = (int) ($input['member_user_id'] ?? 0);
+    if ($teamId <= 0 || $memberUserId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id and member_user_id required.'], 422);
+    }
+
+    $actorRole = require_team_admin_role($pdo, $uid, $teamId);
+    $targetStmt = $pdo->prepare('SELECT role FROM team_members WHERE team_id = ? AND user_id = ? AND status = "active" LIMIT 1');
+    $targetStmt->execute([$teamId, $memberUserId]);
+    $targetRole = $targetStmt->fetchColumn();
+    if ($targetRole === false) {
+        json_response(['ok' => false, 'error' => 'Member not found.'], 404);
+    }
+    if ($memberUserId === $uid) {
+        json_response(['ok' => false, 'error' => 'You cannot remove yourself.'], 403);
+    }
+    if ($targetRole === 'owner') {
+        json_response(['ok' => false, 'error' => 'Owner cannot be removed.'], 403);
+    }
+    if ($actorRole !== 'owner' && $targetRole === 'admin') {
+        json_response(['ok' => false, 'error' => 'Only owner can remove admins.'], 403);
+    }
+
+    $updateStmt = $pdo->prepare(
+        'UPDATE team_members SET status = "removed", role = "member" WHERE team_id = ? AND user_id = ? AND status = "active"'
+    );
+    $updateStmt->execute([$teamId, $memberUserId]);
+    json_response(['ok' => true, 'members' => list_team_members($pdo, $teamId)]);
+}
+
 function handle_media_list(PDO $pdo): void
 {
     require_method('GET');
@@ -418,33 +527,69 @@ function handle_invite_email(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'Team not found.'], 404);
     }
 
-    $appUrl = 'https://snap.pucc.us';
+    $appUrl = APP_PUBLIC_URL;
     $inviteUrl = $appUrl . '/?join=' . rawurlencode((string) $team['join_code']);
     $senderName = (string) ($_SESSION['display_name'] ?? 'A team member');
+    $brandName = APP_BRAND_NAME;
+    $logoUrl = APP_INVITE_LOGO_URL;
 
-    $subject = sprintf('Invitation to join %s on Slapshot Snapshot', (string) $team['name']);
-    $bodyLines = [
-        sprintf('%s invited you to join "%s" on Slapshot Snapshot.', $senderName, (string) $team['name']),
+    $subject = sprintf('Invitation to join %s on %s', (string) $team['name'], $brandName);
+    $plainLines = [
+        sprintf('%s invited you to join "%s" on %s.', $senderName, (string) $team['name'], $brandName),
         '',
         sprintf('Join code: %s', (string) $team['join_code']),
         sprintf('Direct link: %s', $inviteUrl),
     ];
     if ($message !== '') {
-        $bodyLines[] = '';
-        $bodyLines[] = 'Personal note:';
-        $bodyLines[] = $message;
+        $plainLines[] = '';
+        $plainLines[] = 'Personal note:';
+        $plainLines[] = $message;
     }
-    $bodyLines[] = '';
-    $bodyLines[] = 'See you at the rink.';
-    $body = implode("\r\n", $bodyLines);
+    $plainLines[] = '';
+    $plainLines[] = 'See you at the rink.';
+    $plainText = implode("\r\n", $plainLines);
+
+    $senderEsc = htmlspecialchars($senderName, ENT_QUOTES, 'UTF-8');
+    $teamEsc = htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8');
+    $brandEsc = htmlspecialchars($brandName, ENT_QUOTES, 'UTF-8');
+    $codeEsc = htmlspecialchars((string) $team['join_code'], ENT_QUOTES, 'UTF-8');
+    $linkEsc = htmlspecialchars($inviteUrl, ENT_QUOTES, 'UTF-8');
+    $messageEsc = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+    $logoHtml = '';
+    if ($logoUrl !== '') {
+        $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
+        $logoHtml = '<img src="' . $logoEsc . '" alt="' . $brandEsc . '" style="max-height:48px;display:block;margin-bottom:12px;">';
+    }
+    $personalNoteHtml = $message !== ''
+        ? '<p style="margin:16px 0 6px;color:#334;">Personal note:</p><div style="background:#f7f8fc;border-radius:10px;padding:10px 12px;color:#25324a;">' . $messageEsc . '</div>'
+        : '';
+    $html = '<!doctype html><html><body style="margin:0;background:#f2f5ff;font-family:Arial,sans-serif;color:#17253d;">
+<div style="max-width:640px;margin:28px auto;background:#fff;border-radius:14px;padding:24px;border:1px solid #dde5ff;">
+' . $logoHtml . '
+<h2 style="margin:0 0 12px;color:#0f2f59;">You are invited to join ' . $teamEsc . '</h2>
+<p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . $brandEsc . '.</p>
+<p style="margin:0 0 6px;color:#2e3c56;"><strong>Join code:</strong> ' . $codeEsc . '</p>
+<p style="margin:0 0 18px;"><a href="' . $linkEsc . '" style="display:inline-block;background:#ff5a2a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Open Invite Link</a></p>
+' . $personalNoteHtml . '
+<p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>
+</div></body></html>';
 
     $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'snap.pucc.us'));
     $fromAddress = 'noreply@' . ($host !== '' ? $host : 'snap.pucc.us');
+    $boundary = '=_slapshot_' . bin2hex(random_bytes(8));
     $headers = [
-        'From: Slapshot Snapshot <' . $fromAddress . '>',
+        'From: ' . $brandName . ' <' . $fromAddress . '>',
         'Reply-To: ' . $fromAddress,
-        'Content-Type: text/plain; charset=UTF-8',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
     ];
+    $body = '--' . $boundary . "\r\n";
+    $body .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
+    $body .= $plainText . "\r\n\r\n";
+    $body .= '--' . $boundary . "\r\n";
+    $body .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
+    $body .= $html . "\r\n\r\n";
+    $body .= '--' . $boundary . "--\r\n";
 
     $ok = @mail($email, $subject, $body, implode("\r\n", $headers));
     if (!$ok) {
@@ -480,6 +625,15 @@ switch ($action) {
     case 'team_join':
         handle_join_team($pdo);
         break;
+    case 'team_members':
+        handle_team_members($pdo);
+        break;
+    case 'team_member_role':
+        handle_team_member_role($pdo);
+        break;
+    case 'team_member_remove':
+        handle_team_member_remove($pdo);
+        break;
     case 'media_list':
         handle_media_list($pdo);
         break;
@@ -506,6 +660,9 @@ switch ($action) {
                 'auth_logout',
                 'team_create',
                 'team_join',
+                'team_members',
+                'team_member_role',
+                'team_member_remove',
                 'media_list',
                 'media_upload',
                 'media_external',

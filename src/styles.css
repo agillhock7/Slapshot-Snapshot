@@ -409,6 +409,10 @@ textarea {
   gap: 0.75rem;
 }
 
+.load-sentinel {
+  height: 1px;
+}
+
 .media-card {
   border: 1px solid var(--line);
   border-radius: 13px;
@@ -458,6 +462,44 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 0.8rem;
+}
+
+.member-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.member-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.member-controls {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.member-controls select {
+  width: auto;
+}
+
+.role-pill {
+  border-radius: 999px;
+  border: 1px solid #ffb595;
+  background: #ffe8dd;
+  color: #6d321f;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 
 .modal-backdrop {
@@ -514,5 +556,10 @@ textarea {
 
   .topbar {
     align-items: start;
+  }
+
+  .member-card {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

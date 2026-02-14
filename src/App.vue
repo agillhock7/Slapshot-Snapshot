@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { apiGet, apiPost } from "./api";
 
 const APP_URL = "https://snap.pucc.us";
+const PAGE_SIZE = 18;
 
 const loadingSession = ref(true);
 const busy = ref(false);
@@ -19,6 +20,11 @@ const activeTab = ref("overview");
 const dragActive = ref(false);
 const pendingJoinCode = ref("");
 const uploadQueue = ref([]);
+const teamMembers = ref([]);
+const membersLoading = ref(false);
+const visibleCount = ref(PAGE_SIZE);
+const loadMoreSentinel = ref(null);
+let observer = null;
 
 const loginForm = reactive({ email: "", password: "" });
 const registerForm = reactive({
@@ -50,6 +56,10 @@ const isAuthenticated = computed(() => !!user.value);
 const activeTeam = computed(() =>
   teams.value.find((team) => Number(team.id) === Number(activeTeamId.value))
 );
+const activeTeamRole = computed(() => activeTeam.value?.role || "member");
+const canManageMembers = computed(
+  () => activeTeamRole.value === "owner" || activeTeamRole.value === "admin"
+);
 const photoCount = computed(
   () => mediaItems.value.filter((item) => item.media_type === "photo").length
 );
@@ -74,6 +84,8 @@ const filteredMedia = computed(() => {
     return text.includes(query);
   });
 });
+const visibleMedia = computed(() => filteredMedia.value.slice(0, visibleCount.value));
+const hasMoreMedia = computed(() => visibleCount.value < filteredMedia.value.length);
 const totalUploadProgress = computed(() => {
   if (!uploadQueue.value.length) return 0;
   const sum = uploadQueue.value.reduce((acc, item) => acc + item.progress, 0);
@@ -120,6 +132,27 @@ function applySession(payload) {
   }
 }
 
+function resetGalleryPagination() {
+  visibleCount.value = PAGE_SIZE;
+}
+
+function setupInfiniteScroll() {
+  if (observer) observer.disconnect();
+  if (!loadMoreSentinel.value || typeof IntersectionObserver === "undefined") return;
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting && hasMoreMedia.value) {
+          visibleCount.value += PAGE_SIZE;
+        }
+      });
+    },
+    { rootMargin: "140px" }
+  );
+  observer.observe(loadMoreSentinel.value);
+}
+
 async function loadSession() {
   loadingSession.value = true;
   pendingJoinCode.value = extractJoinCodeFromUrl();
@@ -138,7 +171,10 @@ async function loadSession() {
     }
 
     applySession(payload);
-    if (activeTeamId.value) await loadMedia();
+    if (activeTeamId.value) {
+      await loadMedia();
+      await loadTeamMembers();
+    }
     if (pendingJoinCode.value) await joinTeam(true);
   } catch (err) {
     setBanner("error", err.message);
@@ -151,6 +187,20 @@ async function loadMedia() {
   if (!activeTeamId.value) return;
   const payload = await apiGet("media_list", { team_id: activeTeamId.value });
   mediaItems.value = payload.items || [];
+  resetGalleryPagination();
+}
+
+async function loadTeamMembers() {
+  if (!activeTeamId.value) return;
+  membersLoading.value = true;
+  try {
+    const payload = await apiGet("team_members", { team_id: activeTeamId.value });
+    teamMembers.value = payload.members || [];
+  } catch (err) {
+    setBanner("error", err.message || "Unable to load team members.");
+  } finally {
+    membersLoading.value = false;
+  }
 }
 
 async function withBusy(task) {
@@ -174,7 +224,7 @@ async function register() {
       await joinTeam(true);
       return;
     }
-    await loadMedia();
+    await Promise.all([loadMedia(), loadTeamMembers()]);
     setBanner("success", "Account created and team ready.");
   });
 }
@@ -188,7 +238,7 @@ async function login() {
       await joinTeam(true);
       return;
     }
-    await loadMedia();
+    await Promise.all([loadMedia(), loadTeamMembers()]);
     setBanner("success", "Welcome back.");
   });
 }
@@ -200,6 +250,7 @@ async function logout() {
     teams.value = [];
     activeTeamId.value = 0;
     mediaItems.value = [];
+    teamMembers.value = [];
     localStorage.removeItem("slapshot_active_team_id");
   });
 }
@@ -212,7 +263,7 @@ async function createTeam() {
     if (payload.created_team_id) {
       activeTeamId.value = Number(payload.created_team_id);
       localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value));
-      await loadMedia();
+      await Promise.all([loadMedia(), loadTeamMembers()]);
     }
     setBanner("success", "New team created.");
   });
@@ -230,7 +281,7 @@ async function joinTeam(silent = false) {
     if (payload.joined_team_id) {
       activeTeamId.value = Number(payload.joined_team_id);
       localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value));
-      await loadMedia();
+      await Promise.all([loadMedia(), loadTeamMembers()]);
     }
     joinTeamForm.join_code = "";
     pendingJoinCode.value = "";
@@ -242,7 +293,9 @@ async function joinTeam(silent = false) {
 async function switchTeam() {
   clearBanner();
   localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value));
-  await withBusy(loadMedia);
+  await withBusy(async () => {
+    await Promise.all([loadMedia(), loadTeamMembers()]);
+  });
 }
 
 function setSelectedFiles(fileList) {
@@ -292,7 +345,6 @@ function uploadSingleFile(file, queueIndex, titleForFile) {
       uploadQueue.value[queueIndex].progress = Math.round((event.loaded / event.total) * 100);
       uploadQueue.value[queueIndex].status = "uploading";
     };
-
     xhr.onload = () => {
       try {
         const data = JSON.parse(xhr.responseText || "{}");
@@ -302,20 +354,17 @@ function uploadSingleFile(file, queueIndex, titleForFile) {
           resolve();
           return;
         }
-        const msg = data.error || "Upload failed.";
         uploadQueue.value[queueIndex].status = "error";
-        reject(new Error(msg));
+        reject(new Error(data.error || "Upload failed."));
       } catch {
         uploadQueue.value[queueIndex].status = "error";
         reject(new Error("Invalid server response."));
       }
     };
-
     xhr.onerror = () => {
       uploadQueue.value[queueIndex].status = "error";
       reject(new Error("Network error during upload."));
     };
-
     xhr.send(formData);
   });
 }
@@ -338,7 +387,6 @@ async function uploadFiles() {
             : baseTitle;
       await uploadSingleFile(file, i, titleForFile);
     }
-
     uploadFileForm.title = "";
     uploadFileForm.description = "";
     uploadFileForm.game_date = "";
@@ -373,6 +421,40 @@ async function sendInviteEmail() {
     emailInviteForm.email = "";
     emailInviteForm.message = "";
     setBanner("success", "Invite email sent.");
+  });
+}
+
+function canManageMember(member) {
+  if (!canManageMembers.value) return false;
+  if (Number(member.user_id) === Number(user.value?.id || 0)) return false;
+  if (member.role === "owner") return false;
+  if (activeTeamRole.value === "admin" && member.role === "admin") return false;
+  return true;
+}
+
+async function updateMemberRole(member, nextRole) {
+  if (!canManageMember(member) || member.role === nextRole) return;
+  await withBusy(async () => {
+    const payload = await apiPost("team_member_role", {
+      team_id: activeTeamId.value,
+      member_user_id: member.user_id,
+      role: nextRole
+    });
+    teamMembers.value = payload.members || [];
+    setBanner("success", `Updated ${member.display_name} to ${nextRole}.`);
+  });
+}
+
+async function removeMember(member) {
+  if (!canManageMember(member)) return;
+  if (!window.confirm(`Remove ${member.display_name} from this team?`)) return;
+  await withBusy(async () => {
+    const payload = await apiPost("team_member_remove", {
+      team_id: activeTeamId.value,
+      member_user_id: member.user_id
+    });
+    teamMembers.value = payload.members || [];
+    setBanner("success", "Member removed.");
   });
 }
 
@@ -429,23 +511,33 @@ async function nativeShareInvite() {
       url: inviteLink.value
     });
     setBanner("success", "Invite shared.");
-  } catch {
-    // no-op on cancel
-  }
+  } catch {}
 }
 
 function smsInviteLink() {
-  const text = encodeURIComponent(inviteCopy.value);
-  return `sms:?&body=${text}`;
+  return `sms:?&body=${encodeURIComponent(inviteCopy.value)}`;
 }
 
 function emailInviteLink() {
   const subject = encodeURIComponent(`Join ${activeTeam.value?.name || "our team"} on Slapshot Snapshot`);
-  const body = encodeURIComponent(inviteCopy.value);
-  return `mailto:?subject=${subject}&body=${body}`;
+  return `mailto:?subject=${subject}&body=${encodeURIComponent(inviteCopy.value)}`;
 }
 
-onMounted(loadSession);
+watch([filteredMedia, activeTab], async () => {
+  resetGalleryPagination();
+  await nextTick();
+  setupInfiniteScroll();
+});
+
+onMounted(async () => {
+  await loadSession();
+  await nextTick();
+  setupInfiniteScroll();
+});
+
+onBeforeUnmount(() => {
+  if (observer) observer.disconnect();
+});
 </script>
 
 <template>
@@ -455,58 +547,37 @@ onMounted(loadSession);
         <p class="brand-kicker">Slapshot Snapshot</p>
         <h1>Rink Relay</h1>
       </div>
-      <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">
-        Sign out
-      </button>
+      <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">Sign out</button>
     </header>
 
     <p v-if="banner.message" :class="['banner', banner.type]">{{ banner.message }}</p>
 
-    <section v-if="loadingSession" class="panel padded">
-      <p>Loading session...</p>
-    </section>
+    <section v-if="loadingSession" class="panel padded"><p>Loading session...</p></section>
 
     <section v-else-if="!isAuthenticated" class="panel auth-panel">
       <div class="switcher">
-        <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">
-          Create account
-        </button>
-        <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">
-          Sign in
-        </button>
+        <button :class="{ active: authMode === 'register' }" @click="authMode = 'register'">Create account</button>
+        <button :class="{ active: authMode === 'login' }" @click="authMode = 'login'">Sign in</button>
       </div>
       <form v-if="authMode === 'register'" class="form-grid" @submit.prevent="register">
         <label><span>Name</span><input v-model="registerForm.display_name" required /></label>
         <label><span>Email</span><input v-model="registerForm.email" type="email" required /></label>
-        <label>
-          <span>Password</span>
-          <input v-model="registerForm.password" type="password" minlength="8" required />
-        </label>
-        <label>
-          <span>First Team Name</span>
-          <input v-model="registerForm.team_name" required />
-        </label>
+        <label><span>Password</span><input v-model="registerForm.password" type="password" minlength="8" required /></label>
+        <label><span>First Team Name</span><input v-model="registerForm.team_name" required /></label>
         <button class="btn" :disabled="busy">Create account & team</button>
       </form>
       <form v-else class="form-grid" @submit.prevent="login">
         <label><span>Email</span><input v-model="loginForm.email" type="email" required /></label>
-        <label>
-          <span>Password</span>
-          <input v-model="loginForm.password" type="password" required />
-        </label>
+        <label><span>Password</span><input v-model="loginForm.password" type="password" required /></label>
         <button class="btn" :disabled="busy">Sign in</button>
       </form>
     </section>
 
     <section v-else class="dashboard">
       <nav class="app-nav panel">
-        <button :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">
-          Overview
-        </button>
+        <button :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">Overview</button>
         <button :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">Upload</button>
-        <button :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
-          Gallery
-        </button>
+        <button :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">Gallery</button>
         <button :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">Teams</button>
       </nav>
 
@@ -514,9 +585,7 @@ onMounted(loadSession);
         <article class="panel hero">
           <p class="eyebrow">Active Team</p>
           <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
-          <p class="hero-copy">
-            Build a private season timeline with clips, photos, and invite-only family access.
-          </p>
+          <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
           <div class="stats">
             <article><p>Total</p><strong>{{ mediaItems.length }}</strong></article>
             <article><p>Photos</p><strong>{{ photoCount }}</strong></article>
@@ -540,17 +609,8 @@ onMounted(loadSession);
           </div>
           <form class="stack compact" @submit.prevent="sendInviteEmail">
             <h4>Send Auto Email Invite</h4>
-            <input
-              v-model="emailInviteForm.email"
-              type="email"
-              placeholder="family@example.com"
-              required
-            />
-            <textarea
-              v-model="emailInviteForm.message"
-              rows="2"
-              placeholder="Optional personal message"
-            />
+            <input v-model="emailInviteForm.email" type="email" placeholder="family@example.com" required />
+            <textarea v-model="emailInviteForm.message" rows="2" placeholder="Optional personal message" />
             <button class="btn" :disabled="busy || !activeTeamId">Send Invite Email</button>
           </form>
         </article>
@@ -559,12 +619,7 @@ onMounted(loadSession);
       <section v-if="activeTab === 'upload'" class="upload-grid">
         <article class="panel stack">
           <h3>Multi-File Upload</h3>
-          <div
-            :class="['dropzone', { active: dragActive }]"
-            @drop="onDrop"
-            @dragover="onDragOver"
-            @dragleave="onDragLeave"
-          >
+          <div :class="['dropzone', { active: dragActive }]" @drop="onDrop" @dragover="onDragOver" @dragleave="onDragLeave">
             <p>Drag & drop files here or choose manually</p>
             <input type="file" accept="image/*,video/*" multiple @change="onFileInput" />
           </div>
@@ -577,10 +632,7 @@ onMounted(loadSession);
           <div v-if="uploadQueue.length" class="queue">
             <p class="meta">Overall Progress: {{ totalUploadProgress }}%</p>
             <article v-for="(item, index) in uploadQueue" :key="item.name + index">
-              <div class="queue-head">
-                <span>{{ item.name }}</span>
-                <strong>{{ item.progress }}%</strong>
-              </div>
+              <div class="queue-head"><span>{{ item.name }}</span><strong>{{ item.progress }}%</strong></div>
               <div class="bar"><span :style="{ width: `${item.progress}%` }" /></div>
             </article>
           </div>
@@ -591,46 +643,23 @@ onMounted(loadSession);
           <input v-model="uploadLinkForm.title" placeholder="Title" required />
           <textarea v-model="uploadLinkForm.description" rows="2" placeholder="Description" />
           <input v-model="uploadLinkForm.game_date" type="date" />
-          <input
-            v-model="uploadLinkForm.url"
-            type="url"
-            placeholder="https://youtube.com/watch?v=..."
-            required
-          />
-          <button class="btn btn-secondary" :disabled="busy || !activeTeamId" @click="uploadLink">
-            Share Video Link
-          </button>
+          <input v-model="uploadLinkForm.url" type="url" placeholder="https://youtube.com/watch?v=..." required />
+          <button class="btn btn-secondary" :disabled="busy || !activeTeamId" @click="uploadLink">Share Video Link</button>
         </article>
       </section>
 
       <section v-if="activeTab === 'gallery'" class="panel padded">
         <div class="toolbar">
           <div class="chips">
-            <button
-              v-for="type in ['all', 'photo', 'video']"
-              :key="type"
-              :class="['chip', { active: mediaFilter === type }]"
-              @click="mediaFilter = type"
-            >
-              {{ type }}
-            </button>
+            <button v-for="type in ['all', 'photo', 'video']" :key="type" :class="['chip', { active: mediaFilter === type }]" @click="mediaFilter = type">{{ type }}</button>
           </div>
           <input v-model="searchQuery" placeholder="Search title, caption, uploader..." />
         </div>
 
         <section class="gallery">
-          <article
-            v-for="item in filteredMedia"
-            :key="item.id"
-            class="media-card"
-            @click="modalItem = item"
-          >
-            <img
-              v-if="item.media_type === 'photo'"
-              :src="item.file_path || item.thumbnail_url"
-              :alt="item.title"
-            />
-            <img v-else :src="item.thumbnail_url || '/video-placeholder.svg'" :alt="item.title" />
+          <article v-for="item in visibleMedia" :key="item.id" class="media-card" @click="modalItem = item">
+            <img v-if="item.media_type === 'photo'" :src="item.file_path || item.thumbnail_url" :alt="item.title" loading="lazy" decoding="async" />
+            <img v-else :src="item.thumbnail_url || '/video-placeholder.svg'" :alt="item.title" loading="lazy" decoding="async" />
             <div class="copy">
               <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
               <h4>{{ item.title }}</h4>
@@ -638,7 +667,9 @@ onMounted(loadSession);
             </div>
           </article>
         </section>
+        <div ref="loadMoreSentinel" class="load-sentinel" />
         <p v-if="filteredMedia.length === 0" class="empty">No media found for this filter yet.</p>
+        <p v-else-if="hasMoreMedia" class="empty">Scroll for more...</p>
       </section>
 
       <section v-if="activeTab === 'teams'" class="panel padded team-admin">
@@ -651,6 +682,7 @@ onMounted(loadSession);
             </option>
           </select>
         </label>
+
         <div class="team-actions">
           <form class="stack compact" @submit.prevent="createTeam">
             <h4>Create New Team</h4>
@@ -663,6 +695,27 @@ onMounted(loadSession);
             <button class="btn btn-secondary" :disabled="busy">Join Team</button>
           </form>
         </div>
+
+        <h4>Members</h4>
+        <p v-if="membersLoading" class="meta">Loading members...</p>
+        <div v-else class="member-list">
+          <article v-for="member in teamMembers" :key="member.id" class="member-card">
+            <div>
+              <strong>{{ member.display_name }}</strong>
+              <p class="meta">{{ member.email }}</p>
+            </div>
+            <div class="member-controls">
+              <span class="role-pill">{{ member.role }}</span>
+              <template v-if="canManageMember(member)">
+                <select :value="member.role" @change="updateMemberRole(member, $event.target.value)">
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                </select>
+                <button class="btn btn-danger" @click="removeMember(member)">Remove</button>
+              </template>
+            </div>
+          </article>
+        </div>
       </section>
     </section>
 
@@ -672,25 +725,9 @@ onMounted(loadSession);
         <h3>{{ modalItem.title }}</h3>
         <p class="meta">{{ displayDate(modalItem.game_date) }} · {{ modalItem.uploader_name }}</p>
         <p>{{ modalItem.description || "No description." }}</p>
-        <img
-          v-if="modalItem.media_type === 'photo'"
-          :src="modalItem.file_path || modalItem.thumbnail_url"
-          :alt="modalItem.title"
-          class="viewer"
-        />
-        <video
-          v-else-if="modalItem.storage_type === 'upload'"
-          :src="modalItem.file_path"
-          controls
-          class="viewer"
-        />
-        <iframe
-          v-else
-          :src="modalItem.external_url"
-          title="Shared video"
-          allowfullscreen
-          class="viewer frame"
-        />
+        <img v-if="modalItem.media_type === 'photo'" :src="modalItem.file_path || modalItem.thumbnail_url" :alt="modalItem.title" class="viewer" />
+        <video v-else-if="modalItem.storage_type === 'upload'" :src="modalItem.file_path" controls class="viewer" />
+        <iframe v-else :src="modalItem.external_url" title="Shared video" allowfullscreen class="viewer frame" />
         <button class="btn btn-danger" @click="deleteMedia(modalItem.id)">Delete</button>
       </article>
     </section>

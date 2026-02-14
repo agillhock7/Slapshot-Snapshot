@@ -9,6 +9,8 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - YouTube link sharing
 - Direct invite links (`?join=CODE`) with auto-join flow
 - One-click invite actions (copy/share/text/email) plus server-sent email invites
+- Team member management (owner/admin/member roles)
+- Infinite-scroll gallery with lazy-loaded media cards
 - Team-scoped gallery with search and filtering
 
 ## Tech stack
@@ -67,6 +69,16 @@ npm run build
 
 The `invite_email` API action uses PHP `mail()`. On cPanel this typically works via local sendmail.
 If invite sending fails, verify outbound mail settings and domain email policies (SPF/DKIM).
+
+## Optional branding config
+
+In `api/config.local.php`, you can set:
+
+- `LOCAL_APP_PUBLIC_URL`
+- `LOCAL_APP_BRAND_NAME`
+- `LOCAL_APP_INVITE_LOGO_URL`
+
+These values are used in branded HTML invite emails.
 
 ## Main paths
 
