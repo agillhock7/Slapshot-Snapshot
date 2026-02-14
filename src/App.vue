@@ -16,6 +16,7 @@ const mediaFilter = ref("all");
 const searchQuery = ref("");
 const sortBy = ref("newest");
 const groupBy = ref("none");
+const galleryView = ref("cinematic");
 const selectionMode = ref(false);
 const selectedMediaIds = ref([]);
 const banner = reactive({ type: "", message: "" });
@@ -121,13 +122,22 @@ const sortedMedia = computed(() => {
 });
 const visibleMedia = computed(() => sortedMedia.value.slice(0, visibleCount.value));
 const groupedVisibleMedia = computed(() => {
-  if (groupBy.value === "none") return [{ key: "all", label: "All Media", items: visibleMedia.value }];
+  const modeGroup = galleryView.value === "timeline" ? "date" : groupBy.value;
+  if (modeGroup === "none") return [{ key: "all", label: "All Media", items: visibleMedia.value }];
   const map = new Map();
   for (const item of visibleMedia.value) {
     let key = "Other";
-    if (groupBy.value === "uploader") key = item.uploader_name || "Unknown";
-    if (groupBy.value === "type") key = item.media_type === "photo" ? "Photos" : "Videos";
-    if (groupBy.value === "date") key = displayDate(item.game_date || item.created_at?.slice(0, 10));
+    if (modeGroup === "uploader") key = item.uploader_name || "Unknown";
+    if (modeGroup === "type") key = item.media_type === "photo" ? "Photos" : "Videos";
+    if (modeGroup === "date") {
+      const raw = item.game_date || item.created_at?.slice(0, 10);
+      const d = raw ? new Date(`${raw}T00:00:00`) : null;
+      if (galleryView.value === "timeline" && d && !Number.isNaN(d.getTime())) {
+        key = d.toLocaleString(undefined, { month: "long", year: "numeric" });
+      } else {
+        key = displayDate(raw);
+      }
+    }
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(item);
   }
@@ -135,6 +145,18 @@ const groupedVisibleMedia = computed(() => {
 });
 const hasMoreMedia = computed(() => visibleCount.value < sortedMedia.value.length);
 const selectedCount = computed(() => selectedMediaIds.value.length);
+const featuredMedia = computed(() => (visibleMedia.value.length > 0 ? visibleMedia.value[0] : null));
+const cinematicReelMedia = computed(() =>
+  featuredMedia.value ? visibleMedia.value.slice(1) : visibleMedia.value
+);
+const modalStrip = computed(() => {
+  if (!modalItem.value) return [];
+  const idx = modalIndex();
+  if (idx < 0) return [];
+  const start = Math.max(0, idx - 4);
+  const end = Math.min(sortedMedia.value.length, idx + 5);
+  return sortedMedia.value.slice(start, end);
+});
 const totalUploadProgress = computed(() => {
   if (!uploadQueue.value.length) return 0;
   const sum = uploadQueue.value.reduce((acc, item) => acc + item.progress, 0);
@@ -707,7 +729,7 @@ function emailInviteLink() {
   return `mailto:?subject=${subject}&body=${encodeURIComponent(inviteCopy.value)}`;
 }
 
-watch([sortedMedia, activeTab, groupBy], async () => {
+watch([sortedMedia, activeTab, groupBy, galleryView], async () => {
   resetGalleryPagination();
   await nextTick();
   setupInfiniteScroll();
@@ -888,12 +910,23 @@ onBeforeUnmount(() => {
               <option value="title">Title</option>
               <option value="uploader">Uploader</option>
             </select>
-            <select v-model="groupBy" aria-label="Group media">
+            <select v-model="groupBy" :disabled="galleryView === 'timeline'" aria-label="Group media">
               <option value="none">No Group</option>
               <option value="date">Group by Date</option>
               <option value="uploader">Group by Uploader</option>
               <option value="type">Group by Type</option>
             </select>
+            <div class="view-switch">
+              <button :class="{ active: galleryView === 'cinematic' }" @click="galleryView = 'cinematic'">
+                Cinematic
+              </button>
+              <button :class="{ active: galleryView === 'masonry' }" @click="galleryView = 'masonry'">
+                Masonry
+              </button>
+              <button :class="{ active: galleryView === 'timeline' }" @click="galleryView = 'timeline'">
+                Timeline
+              </button>
+            </div>
             <button class="btn btn-ghost" @click="toggleSelectionMode">
               {{ selectionMode ? "Exit Select" : "Select" }}
             </button>
@@ -915,13 +948,45 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <section v-for="group in groupedVisibleMedia" :key="group.key" class="media-group">
-          <h4 v-if="groupBy !== 'none'" class="group-label">{{ group.label }}</h4>
-          <div class="gallery">
+        <section v-if="galleryView === 'cinematic'" class="cinematic-wrap">
+          <article
+            v-if="featuredMedia"
+            class="featured-card"
+            :class="{ selected: isSelected(featuredMedia.id) }"
+            @click="openMediaModal(featuredMedia)"
+          >
+            <button
+              v-if="selectionMode"
+              class="select-dot"
+              :class="{ on: isSelected(featuredMedia.id) }"
+              @click.stop="toggleSelected(featuredMedia.id)"
+              aria-label="Toggle select media"
+            />
+            <img
+              v-if="featuredMedia.media_type === 'photo'"
+              :src="featuredMedia.file_path || featuredMedia.thumbnail_url"
+              :alt="featuredMedia.title"
+              loading="eager"
+              decoding="async"
+            />
+            <img
+              v-else
+              :src="featuredMedia.thumbnail_url || '/video-placeholder.svg'"
+              :alt="featuredMedia.title"
+              loading="eager"
+              decoding="async"
+            />
+            <div class="featured-overlay">
+              <p class="meta">Featured Moment</p>
+              <h3>{{ featuredMedia.title }}</h3>
+              <p>{{ featuredMedia.description || "No description yet." }}</p>
+            </div>
+          </article>
+          <TransitionGroup name="reel" tag="section" class="cinema-reel">
             <article
-              v-for="item in group.items"
+              v-for="item in cinematicReelMedia"
               :key="item.id"
-              :class="['media-card', { selected: isSelected(item.id) }]"
+              :class="['media-card', 'cinema-card', { selected: isSelected(item.id) }]"
               @click="openMediaModal(item)"
             >
               <button
@@ -951,8 +1016,91 @@ onBeforeUnmount(() => {
                 <p>{{ item.description || "No description yet." }}</p>
               </div>
             </article>
-          </div>
+          </TransitionGroup>
         </section>
+
+        <section v-else-if="galleryView === 'masonry'" class="masonry-grid">
+          <section v-for="group in groupedVisibleMedia" :key="group.key" class="media-group">
+            <h4 v-if="groupBy !== 'none'" class="group-label">{{ group.label }}</h4>
+            <div class="gallery masonry-gallery">
+              <article
+                v-for="item in group.items"
+                :key="item.id"
+                :class="['media-card', 'masonry-card', { selected: isSelected(item.id) }]"
+                @click="openMediaModal(item)"
+              >
+                <button
+                  v-if="selectionMode"
+                  class="select-dot"
+                  :class="{ on: isSelected(item.id) }"
+                  @click.stop="toggleSelected(item.id)"
+                  aria-label="Toggle select media"
+                />
+                <img
+                  v-if="item.media_type === 'photo'"
+                  :src="item.file_path || item.thumbnail_url"
+                  :alt="item.title"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  v-else
+                  :src="item.thumbnail_url || '/video-placeholder.svg'"
+                  :alt="item.title"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <div class="copy">
+                  <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
+                  <h4>{{ item.title }}</h4>
+                  <p>{{ item.description || "No description yet." }}</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </section>
+
+        <section v-else class="timeline-wrap">
+          <section v-for="group in groupedVisibleMedia" :key="group.key" class="timeline-group">
+            <h4 class="group-label">{{ group.label }}</h4>
+            <div class="timeline-row">
+              <article
+                v-for="item in group.items"
+                :key="item.id"
+                :class="['media-card', 'timeline-card', { selected: isSelected(item.id) }]"
+                @click="openMediaModal(item)"
+              >
+                <button
+                  v-if="selectionMode"
+                  class="select-dot"
+                  :class="{ on: isSelected(item.id) }"
+                  @click.stop="toggleSelected(item.id)"
+                  aria-label="Toggle select media"
+                />
+                <img
+                  v-if="item.media_type === 'photo'"
+                  :src="item.file_path || item.thumbnail_url"
+                  :alt="item.title"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  v-else
+                  :src="item.thumbnail_url || '/video-placeholder.svg'"
+                  :alt="item.title"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <div class="copy">
+                  <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
+                  <h4>{{ item.title }}</h4>
+                  <p>{{ item.description || "No description yet." }}</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </section>
+
         <div ref="loadMoreSentinel" class="load-sentinel" />
         <p v-if="sortedMedia.length === 0" class="empty">No media found for this filter yet.</p>
         <p v-else-if="hasMoreMedia" class="empty">Scroll for more...</p>
@@ -1092,6 +1240,25 @@ onBeforeUnmount(() => {
         <img v-if="modalItem.media_type === 'photo'" :src="modalItem.file_path || modalItem.thumbnail_url" :alt="modalItem.title" class="viewer" />
         <video v-else-if="modalItem.storage_type === 'upload'" :src="modalItem.file_path" controls class="viewer" />
         <iframe v-else :src="modalItem.external_url" title="Shared video" allowfullscreen class="viewer frame" />
+        <div v-if="modalStrip.length > 1" class="modal-strip">
+          <button
+            v-for="stripItem in modalStrip"
+            :key="stripItem.id"
+            :class="['strip-item', { active: modalItem.id === stripItem.id }]"
+            @click="modalItem = stripItem"
+          >
+            <img
+              v-if="stripItem.media_type === 'photo'"
+              :src="stripItem.file_path || stripItem.thumbnail_url"
+              :alt="stripItem.title"
+            />
+            <img
+              v-else
+              :src="stripItem.thumbnail_url || '/video-placeholder.svg'"
+              :alt="stripItem.title"
+            />
+          </button>
+        </div>
         <button class="btn btn-danger" @click="deleteMedia(modalItem.id)">Delete</button>
       </article>
     </section>
