@@ -50,19 +50,37 @@ button {
   margin-bottom: 0.8rem;
 }
 
-.brand h1 {
-  margin: 0.2rem 0 0;
-  font-size: clamp(2rem, 8vw, 3.4rem);
-  line-height: 0.95;
-  letter-spacing: 0.01em;
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
+  box-shadow: 0 8px 16px rgba(18, 34, 62, 0.22);
+}
+
+.brand-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.brand-wordmark {
+  width: clamp(190px, 35vw, 320px);
+  height: auto;
+  display: block;
 }
 
 .brand-kicker {
   margin: 0;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.14em;
   font-weight: 800;
 }
 
@@ -848,9 +866,14 @@ textarea {
 
 .viewer {
   width: 100%;
-  max-height: 72vh;
   border-radius: 10px;
   background: #000;
+}
+
+.viewer-image,
+.viewer-video {
+  height: min(72vh, 760px);
+  object-fit: contain;
 }
 
 .frame {
@@ -945,6 +968,15 @@ textarea {
 
   .topbar {
     align-items: start;
+  }
+
+  .brand-lockup {
+    align-items: start;
+  }
+
+  .brand-mark {
+    width: 48px;
+    height: 48px;
   }
 
   .member-card {

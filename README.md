@@ -14,6 +14,7 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Team update and owner-only delete with double-confirm safeguard
 - Premium gallery experience: sort, group, rich detail modal, batch actions
 - Infinite-scroll gallery with lazy-loaded media cards and render optimization
+- Thumbnail-first gallery rendering for faster loads
 - Team-scoped gallery with search and filtering
 
 ## Tech stack
@@ -73,6 +74,11 @@ npm run build
 
 The `invite_email` API action uses PHP `mail()`. On cPanel this typically works via local sendmail.
 If invite sending fails, verify outbound mail settings and domain email policies (SPF/DKIM).
+
+## Image thumbnail optimization
+
+Photo uploads generate server-side thumbnails (used in gallery cards) when PHP GD functions are available.
+If GD is unavailable, uploads still work and the original image is used as fallback.
 
 ## Optional branding config
 

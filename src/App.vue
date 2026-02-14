@@ -4,6 +4,7 @@ import { apiGet, apiPost } from "./api";
 
 const APP_URL = "https://snap.pucc.us";
 const PAGE_SIZE = 18;
+const API_MEDIA_PAGE_SIZE = 60;
 
 const loadingSession = ref(true);
 const busy = ref(false);
@@ -29,6 +30,10 @@ const teamMembers = ref([]);
 const membersLoading = ref(false);
 const visibleCount = ref(PAGE_SIZE);
 const loadMoreSentinel = ref(null);
+const mediaOffset = ref(0);
+const mediaHasMoreServer = ref(false);
+const mediaLoadingMore = ref(false);
+const mediaStats = reactive({ total: 0, photos: 0, videos: 0 });
 let observer = null;
 let keyHandler = null;
 
@@ -80,12 +85,9 @@ const canManageMembers = computed(
   () => activeTeamRole.value === "owner" || activeTeamRole.value === "admin"
 );
 const canDeleteTeam = computed(() => activeTeamRole.value === "owner");
-const photoCount = computed(
-  () => mediaItems.value.filter((item) => item.media_type === "photo").length
-);
-const videoCount = computed(
-  () => mediaItems.value.filter((item) => item.media_type === "video").length
-);
+const photoCount = computed(() => mediaStats.photos || mediaItems.value.filter((item) => item.media_type === "photo").length);
+const videoCount = computed(() => mediaStats.videos || mediaItems.value.filter((item) => item.media_type === "video").length);
+const totalMediaCount = computed(() => mediaStats.total || mediaItems.value.length);
 const newestMedia = computed(() => mediaItems.value[0] || null);
 const inviteLink = computed(() =>
   activeTeam.value ? `${APP_URL}/?join=${encodeURIComponent(activeTeam.value.join_code)}` : APP_URL
@@ -143,7 +145,9 @@ const groupedVisibleMedia = computed(() => {
   }
   return Array.from(map.entries()).map(([key, items]) => ({ key, label: key, items }));
 });
-const hasMoreMedia = computed(() => visibleCount.value < sortedMedia.value.length);
+const hasMoreMedia = computed(
+  () => visibleCount.value < sortedMedia.value.length || mediaHasMoreServer.value
+);
 const selectedCount = computed(() => selectedMediaIds.value.length);
 const featuredMedia = computed(() => (visibleMedia.value.length > 0 ? visibleMedia.value[0] : null));
 const cinematicReelMedia = computed(() =>
@@ -176,6 +180,14 @@ function clearBanner() {
 function displayDate(date) {
   if (!date) return "No date";
   return new Date(`${date}T00:00:00`).toLocaleDateString();
+}
+
+function cardImageSrc(item) {
+  return item.thumbnail_url || item.file_path || "/video-placeholder.svg";
+}
+
+function focusImageSrc(item) {
+  return item.file_path || item.thumbnail_url || "/video-placeholder.svg";
 }
 
 function isSelected(mediaId) {
@@ -292,8 +304,13 @@ function setupInfiniteScroll() {
   observer = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        if (entry.isIntersecting && hasMoreMedia.value) {
+        if (!entry.isIntersecting || !hasMoreMedia.value) return;
+        if (visibleCount.value < sortedMedia.value.length) {
           visibleCount.value += PAGE_SIZE;
+          return;
+        }
+        if (!mediaLoadingMore.value && mediaHasMoreServer.value) {
+          void loadMedia(false);
         }
       });
     },
@@ -332,13 +349,36 @@ async function loadSession() {
   }
 }
 
-async function loadMedia() {
+async function loadMedia(reset = true) {
   if (!activeTeamId.value) return;
-  const payload = await apiGet("media_list", { team_id: activeTeamId.value });
-  mediaItems.value = payload.items || [];
+  if (mediaLoadingMore.value) return;
+  mediaLoadingMore.value = true;
+  try {
+    const offset = reset ? 0 : mediaOffset.value;
+    const payload = await apiGet("media_list", {
+      team_id: activeTeamId.value,
+      limit: API_MEDIA_PAGE_SIZE,
+      offset
+    });
+    const incoming = payload.items || [];
+    if (reset) {
+      mediaItems.value = incoming;
+      visibleCount.value = PAGE_SIZE;
+    } else {
+      const existing = new Set(mediaItems.value.map((item) => item.id));
+      mediaItems.value = [...mediaItems.value, ...incoming.filter((item) => !existing.has(item.id))];
+    }
+    mediaOffset.value = Number(payload.next_offset || mediaItems.value.length);
+    mediaHasMoreServer.value = Boolean(payload.has_more);
+    mediaStats.total = Number(payload.total_count || mediaItems.value.length);
+    mediaStats.photos = Number(payload.photo_count || 0);
+    mediaStats.videos = Number(payload.video_count || 0);
+  } finally {
+    mediaLoadingMore.value = false;
+  }
   const validIds = new Set(mediaItems.value.map((m) => m.id));
   selectedMediaIds.value = selectedMediaIds.value.filter((id) => validIds.has(id));
-  resetGalleryPagination();
+  if (reset) resetGalleryPagination();
 }
 
 async function loadTeamMembers() {
@@ -401,6 +441,11 @@ async function logout() {
     teams.value = [];
     activeTeamId.value = 0;
     mediaItems.value = [];
+    mediaOffset.value = 0;
+    mediaHasMoreServer.value = false;
+    mediaStats.total = 0;
+    mediaStats.photos = 0;
+    mediaStats.videos = 0;
     teamMembers.value = [];
     localStorage.removeItem("slapshot_active_team_id");
   });
@@ -604,6 +649,11 @@ async function deleteActiveTeam() {
       await Promise.all([loadMedia(), loadTeamMembers()]);
     } else {
       mediaItems.value = [];
+      mediaOffset.value = 0;
+      mediaHasMoreServer.value = false;
+      mediaStats.total = 0;
+      mediaStats.photos = 0;
+      mediaStats.videos = 0;
       teamMembers.value = [];
     }
     setBanner("success", "Team deleted.");
@@ -729,7 +779,7 @@ function emailInviteLink() {
   return `mailto:?subject=${subject}&body=${encodeURIComponent(inviteCopy.value)}`;
 }
 
-watch([sortedMedia, activeTab, groupBy, galleryView], async () => {
+watch([mediaFilter, searchQuery, sortBy, groupBy, galleryView, activeTab], async () => {
   resetGalleryPagination();
   await nextTick();
   setupInfiniteScroll();
@@ -761,9 +811,12 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand">
-        <p class="brand-kicker">Slapshot Snapshot</p>
-        <h1>Slapshot Snapshot</h1>
+      <div class="brand-lockup">
+        <img class="brand-mark" src="/brand-mark.svg" alt="Slapshot Snapshot logo mark" />
+        <div class="brand-copy">
+          <img class="brand-wordmark" src="/brand-wordmark.svg" alt="Slapshot Snapshot" />
+          <p class="brand-kicker">Private Team Media Experience</p>
+        </div>
       </div>
       <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">Sign out</button>
     </header>
@@ -827,7 +880,7 @@ onBeforeUnmount(() => {
             <span class="hero-puck" aria-hidden="true"></span>
           </div>
           <div class="stats">
-            <article><p>Total</p><strong>{{ mediaItems.length }}</strong></article>
+            <article><p>Total</p><strong>{{ totalMediaCount }}</strong></article>
             <article><p>Photos</p><strong>{{ photoCount }}</strong></article>
             <article><p>Videos</p><strong>{{ videoCount }}</strong></article>
             <article><p>Latest</p><strong>{{ newestMedia ? displayDate(newestMedia.game_date) : "-" }}</strong></article>
@@ -964,14 +1017,14 @@ onBeforeUnmount(() => {
             />
             <img
               v-if="featuredMedia.media_type === 'photo'"
-              :src="featuredMedia.file_path || featuredMedia.thumbnail_url"
+              :src="cardImageSrc(featuredMedia)"
               :alt="featuredMedia.title"
               loading="eager"
               decoding="async"
             />
             <img
               v-else
-              :src="featuredMedia.thumbnail_url || '/video-placeholder.svg'"
+              :src="cardImageSrc(featuredMedia)"
               :alt="featuredMedia.title"
               loading="eager"
               decoding="async"
@@ -998,14 +1051,14 @@ onBeforeUnmount(() => {
               />
               <img
                 v-if="item.media_type === 'photo'"
-                :src="item.file_path || item.thumbnail_url"
+                :src="cardImageSrc(item)"
                 :alt="item.title"
                 loading="lazy"
                 decoding="async"
               />
               <img
                 v-else
-                :src="item.thumbnail_url || '/video-placeholder.svg'"
+                :src="cardImageSrc(item)"
                 :alt="item.title"
                 loading="lazy"
                 decoding="async"
@@ -1038,14 +1091,14 @@ onBeforeUnmount(() => {
                 />
                 <img
                   v-if="item.media_type === 'photo'"
-                  :src="item.file_path || item.thumbnail_url"
+                  :src="cardImageSrc(item)"
                   :alt="item.title"
                   loading="lazy"
                   decoding="async"
                 />
                 <img
                   v-else
-                  :src="item.thumbnail_url || '/video-placeholder.svg'"
+                  :src="cardImageSrc(item)"
                   :alt="item.title"
                   loading="lazy"
                   decoding="async"
@@ -1079,14 +1132,14 @@ onBeforeUnmount(() => {
                 />
                 <img
                   v-if="item.media_type === 'photo'"
-                  :src="item.file_path || item.thumbnail_url"
+                  :src="cardImageSrc(item)"
                   :alt="item.title"
                   loading="lazy"
                   decoding="async"
                 />
                 <img
                   v-else
-                  :src="item.thumbnail_url || '/video-placeholder.svg'"
+                  :src="cardImageSrc(item)"
                   :alt="item.title"
                   loading="lazy"
                   decoding="async"
@@ -1237,8 +1290,8 @@ onBeforeUnmount(() => {
           <span>{{ displayDate(modalItem.game_date || modalItem.created_at?.slice(0, 10)) }}</span>
         </div>
         <p>{{ modalItem.description || "No description." }}</p>
-        <img v-if="modalItem.media_type === 'photo'" :src="modalItem.file_path || modalItem.thumbnail_url" :alt="modalItem.title" class="viewer" />
-        <video v-else-if="modalItem.storage_type === 'upload'" :src="modalItem.file_path" controls class="viewer" />
+        <img v-if="modalItem.media_type === 'photo'" :src="focusImageSrc(modalItem)" :alt="modalItem.title" class="viewer viewer-image" />
+        <video v-else-if="modalItem.storage_type === 'upload'" :src="focusImageSrc(modalItem)" controls class="viewer viewer-video" />
         <iframe v-else :src="modalItem.external_url" title="Shared video" allowfullscreen class="viewer frame" />
         <div v-if="modalStrip.length > 1" class="modal-strip">
           <button
@@ -1249,12 +1302,12 @@ onBeforeUnmount(() => {
           >
             <img
               v-if="stripItem.media_type === 'photo'"
-              :src="stripItem.file_path || stripItem.thumbnail_url"
+              :src="cardImageSrc(stripItem)"
               :alt="stripItem.title"
             />
             <img
               v-else
-              :src="stripItem.thumbnail_url || '/video-placeholder.svg'"
+              :src="cardImageSrc(stripItem)"
               :alt="stripItem.title"
             />
           </button>

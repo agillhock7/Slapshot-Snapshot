@@ -443,10 +443,26 @@ function handle_media_list(PDO $pdo): void
     require_method('GET');
     $uid = require_auth();
     $teamId = (int) ($_GET['team_id'] ?? 0);
+    $limit = (int) ($_GET['limit'] ?? 60);
+    $offset = (int) ($_GET['offset'] ?? 0);
+    if ($limit < 1) $limit = 60;
+    if ($limit > 150) $limit = 150;
+    if ($offset < 0) $offset = 0;
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
     require_team_membership($pdo, $uid, $teamId);
+
+    $summaryStmt = $pdo->prepare(
+        'SELECT
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN media_type = "photo" THEN 1 ELSE 0 END) AS photo_count,
+            SUM(CASE WHEN media_type = "video" THEN 1 ELSE 0 END) AS video_count
+         FROM media_items
+         WHERE team_id = ?'
+    );
+    $summaryStmt->execute([$teamId]);
+    $summary = $summaryStmt->fetch() ?: ['total_count' => 0, 'photo_count' => 0, 'video_count' => 0];
 
     $stmt = $pdo->prepare(
         'SELECT m.*, u.display_name AS uploader_name
@@ -454,10 +470,24 @@ function handle_media_list(PDO $pdo): void
          INNER JOIN users u ON u.id = m.uploader_user_id
          WHERE m.team_id = ?
          ORDER BY m.created_at DESC, m.id DESC'
+         . ' LIMIT :limit OFFSET :offset'
     );
-    $stmt->execute([$teamId]);
+    $stmt->bindValue(1, $teamId, PDO::PARAM_INT);
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
     $items = array_map('format_media_row', $stmt->fetchAll());
-    json_response(['ok' => true, 'items' => $items]);
+    $totalCount = (int) ($summary['total_count'] ?? 0);
+    $nextOffset = $offset + count($items);
+    json_response([
+        'ok' => true,
+        'items' => $items,
+        'total_count' => $totalCount,
+        'photo_count' => (int) ($summary['photo_count'] ?? 0),
+        'video_count' => (int) ($summary['video_count'] ?? 0),
+        'next_offset' => $nextOffset,
+        'has_more' => $nextOffset < $totalCount
+    ]);
 }
 
 function media_upload_type(string $mimeType): ?string
@@ -532,16 +562,28 @@ function handle_media_upload(PDO $pdo): void
     }
 
     $filePath = '/uploads/team-' . $teamId . '/' . $filename;
+    $thumbnailPath = null;
+    if ($mediaType === 'photo') {
+        $thumbDirFs = $teamDirFs . '/thumbs';
+        if (!is_dir($thumbDirFs)) {
+            @mkdir($thumbDirFs, 0755, true);
+        }
+        $thumbFilename = pathinfo($filename, PATHINFO_FILENAME) . '.webp';
+        $thumbFs = $thumbDirFs . '/' . $thumbFilename;
+        if (create_image_thumbnail($destFs, $thumbFs, $mimeType, 960)) {
+            $thumbnailPath = '/uploads/team-' . $teamId . '/thumbs/' . $thumbFilename;
+        }
+    }
     if ($title === '') {
         $title = pathinfo((string) ($file['name'] ?? 'Team upload'), PATHINFO_FILENAME);
     }
 
     $stmt = $pdo->prepare(
         'INSERT INTO media_items
-         (team_id, uploader_user_id, media_type, storage_type, title, description, game_date, file_path, mime_type, file_size)
-         VALUES (?, ?, ?, "upload", ?, ?, ?, ?, ?, ?)'
+         (team_id, uploader_user_id, media_type, storage_type, title, description, game_date, file_path, thumbnail_url, mime_type, file_size)
+         VALUES (?, ?, ?, "upload", ?, ?, ?, ?, ?, ?, ?)'
     );
-    $stmt->execute([$teamId, $uid, $mediaType, $title, $description, $gameDate, $filePath, $mimeType, $size]);
+    $stmt->execute([$teamId, $uid, $mediaType, $title, $description, $gameDate, $filePath, $thumbnailPath, $mimeType, $size]);
 
     json_response(['ok' => true], 201);
 }

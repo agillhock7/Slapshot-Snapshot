@@ -246,3 +246,60 @@ function youtube_embed_url(string $url): ?array
         'thumbnail_url' => 'https://img.youtube.com/vi/' . $videoId . '/hqdefault.jpg',
     ];
 }
+
+function create_image_thumbnail(string $sourcePath, string $destPath, string $mimeType, int $maxSize = 960): bool
+{
+    if (!function_exists('imagecreatetruecolor')) {
+        return false;
+    }
+
+    $src = null;
+    if ($mimeType === 'image/jpeg' && function_exists('imagecreatefromjpeg')) {
+        $src = @imagecreatefromjpeg($sourcePath);
+    } elseif ($mimeType === 'image/png' && function_exists('imagecreatefrompng')) {
+        $src = @imagecreatefrompng($sourcePath);
+    } elseif ($mimeType === 'image/webp' && function_exists('imagecreatefromwebp')) {
+        $src = @imagecreatefromwebp($sourcePath);
+    } elseif ($mimeType === 'image/gif' && function_exists('imagecreatefromgif')) {
+        $src = @imagecreatefromgif($sourcePath);
+    } else {
+        return false;
+    }
+
+    if (!$src) {
+        return false;
+    }
+
+    $srcW = imagesx($src);
+    $srcH = imagesy($src);
+    if ($srcW <= 0 || $srcH <= 0) {
+        imagedestroy($src);
+        return false;
+    }
+
+    $scale = min(1, $maxSize / max($srcW, $srcH));
+    $dstW = max(1, (int) floor($srcW * $scale));
+    $dstH = max(1, (int) floor($srcH * $scale));
+    $dst = imagecreatetruecolor($dstW, $dstH);
+    if (!$dst) {
+        imagedestroy($src);
+        return false;
+    }
+
+    imagealphablending($dst, false);
+    imagesavealpha($dst, true);
+    $transparent = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+    imagefill($dst, 0, 0, $transparent);
+
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
+    $ok = false;
+    if (function_exists('imagewebp')) {
+        $ok = @imagewebp($dst, $destPath, 82);
+    } elseif (function_exists('imagejpeg')) {
+        $ok = @imagejpeg($dst, $destPath, 84);
+    }
+
+    imagedestroy($dst);
+    imagedestroy($src);
+    return $ok;
+}
