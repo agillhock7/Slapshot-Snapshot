@@ -967,7 +967,7 @@ onBeforeUnmount(() => {
             <span><strong>Rink:</strong> {{ activeTeam?.home_rink || "Not set" }}</span>
           </div>
           <div class="hero-rink-stage">
-            <img class="hero-graphic" src="/graphics-rink-hero.svg" alt="Stylized hockey rink illustration" />
+            <img class="hero-graphic" src="/graphics-rink-hero-v2.svg" alt="Stylized hockey rink illustration" />
             <span class="hero-puck" aria-hidden="true"></span>
           </div>
           <div class="stats">
