@@ -30,7 +30,16 @@ This generates `dist/`, which is what cPanel deploys to:
 `.cpanel.yml` is configured to:
 
 1. Set deployment path to `/home/puccus/snap.pucc.us`
-2. Copy all built files from `dist/` into that path
+2. Remove stale deployed files (while preserving `.well-known`)
+3. Copy fresh build files from `dist/`
+4. Copy hardened Apache config from `.htaccess`
+
+## Security defaults included
+
+- HTTPS redirect
+- Security headers (`HSTS`, `CSP`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`)
+- SPA routing fallback to `index.html`
+- Directory listing disabled (`Options -Indexes`)
 
 ## Customize media
 

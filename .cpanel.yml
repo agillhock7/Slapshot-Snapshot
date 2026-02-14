@@ -3,5 +3,8 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/puccus/snap.pucc.us
     - /bin/echo "Deploying Slapshot Snapshot to ${DEPLOYPATH}"
-    - /bin/mkdir -p ${DEPLOYPATH}
-    - /bin/cp -R dist/* ${DEPLOYPATH}
+    - /bin/mkdir -p "${DEPLOYPATH}"
+    - /bin/bash -lc '[ "${DEPLOYPATH}" = "/home/puccus/snap.pucc.us" ]'
+    - /bin/find "${DEPLOYPATH}" -mindepth 1 -maxdepth 1 ! -name ".well-known" -exec /bin/rm -rf {} +
+    - /bin/cp -R dist/. "${DEPLOYPATH}/"
+    - /bin/cp .htaccess "${DEPLOYPATH}/.htaccess"
