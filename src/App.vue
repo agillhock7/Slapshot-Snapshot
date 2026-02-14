@@ -959,7 +959,7 @@ onBeforeUnmount(() => {
               <p class="meta">Your team hub for every game-day moment.</p>
             </div>
           </div>
-          <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
+          <p class="hero-copy">Share your team’s best moments with family and friends in one place.</p>
           <div class="team-meta-strip">
             <span><strong>Age:</strong> {{ activeTeam?.age_group || "Not set" }}</span>
             <span><strong>Season:</strong> {{ activeTeam?.season_year || "Not set" }}</span>
