@@ -1,0 +1,2 @@
+ALTER TABLE teams
+  ADD COLUMN IF NOT EXISTS logo_path VARCHAR(255) NULL AFTER team_notes;

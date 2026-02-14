@@ -20,3 +20,4 @@ define('SUPPORT_EMAIL', getenv('SUPPORT_EMAIL') ?: (defined('LOCAL_SUPPORT_EMAIL
 define('APP_ROOT', dirname(__DIR__));
 define('UPLOAD_ROOT', APP_ROOT . '/uploads');
 define('MAX_UPLOAD_BYTES', 300 * 1024 * 1024);
+define('MAX_TEAM_LOGO_BYTES', 8 * 1024 * 1024);

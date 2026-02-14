@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { apiGet, apiPost } from "./api";
+import { apiGet, apiPost, apiUpload } from "./api";
 
 const APP_URL = "https://snap.pucc.us";
 const PAGE_SIZE = 18;
@@ -85,6 +85,7 @@ const emailChangeForm = reactive({
   requested_email: "",
   reason: ""
 });
+const teamLogoInput = ref(null);
 
 const isAuthenticated = computed(() => !!user.value);
 const activeTeam = computed(() =>
@@ -198,6 +199,10 @@ function cardImageSrc(item) {
 
 function focusImageSrc(item) {
   return item.file_path || item.thumbnail_url || "/video-placeholder.svg";
+}
+
+function teamLogoSrc(team) {
+  return team?.logo_path || "/brand-mark.svg";
 }
 
 function isSelected(mediaId) {
@@ -681,6 +686,33 @@ async function updateTeamProfile() {
   });
 }
 
+async function uploadTeamLogo(event) {
+  const file = event?.target?.files?.[0];
+  if (!file || !activeTeamId.value) return;
+  await withBusy(async () => {
+    const formData = new FormData();
+    formData.append("team_id", String(activeTeamId.value));
+    formData.append("logo", file);
+    const payload = await apiUpload("team_logo_upload", formData);
+    teams.value = payload.teams || teams.value;
+    syncTeamProfileForm(teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)));
+    if (teamLogoInput.value) teamLogoInput.value.value = "";
+    setBanner("success", "Team logo updated.");
+  });
+}
+
+async function removeTeamLogo() {
+  if (!activeTeamId.value || !activeTeam.value?.logo_path) return;
+  if (!window.confirm("Remove this team logo?")) return;
+  await withBusy(async () => {
+    const payload = await apiPost("team_logo_delete", { team_id: activeTeamId.value });
+    teams.value = payload.teams || teams.value;
+    syncTeamProfileForm(teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)));
+    if (teamLogoInput.value) teamLogoInput.value.value = "";
+    setBanner("success", "Team logo removed.");
+  });
+}
+
 async function deleteActiveTeam() {
   if (!activeTeamId.value || !activeTeam.value) return;
   await withBusy(async () => {
@@ -919,7 +951,13 @@ onBeforeUnmount(() => {
       <section v-if="activeTab === 'overview'" class="grid-overview">
         <article class="panel hero">
           <p class="eyebrow">Active Team</p>
-          <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
+          <div class="team-identity">
+            <img class="team-logo-badge" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo`" />
+            <div>
+              <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
+              <p class="meta">Custom logo + invite branding are team-specific.</p>
+            </div>
+          </div>
           <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
           <div class="team-meta-strip">
             <span><strong>Age:</strong> {{ activeTeam?.age_group || "Not set" }}</span>
@@ -941,6 +979,10 @@ onBeforeUnmount(() => {
 
         <article class="panel invite-card">
           <h3>Invite Center</h3>
+          <div class="invite-team-head">
+            <img class="invite-team-logo" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo`" />
+            <p class="meta">Your team logo is included in sent invite emails.</p>
+          </div>
           <img class="invite-graphic" src="/graphics-invite-badge.svg" alt="Invite sharing graphic" />
           <p class="invite-code">{{ activeTeam?.join_code || "----" }}</p>
           <div class="button-row">
@@ -1234,6 +1276,33 @@ onBeforeUnmount(() => {
             <button class="btn btn-secondary" :disabled="busy">Join Team</button>
           </form>
         </div>
+
+        <article class="panel team-branding-card">
+          <h4>Team Branding</h4>
+          <p class="meta">Upload a team logo to personalize invites and in-app team visuals.</p>
+          <div class="team-branding-row">
+            <img class="team-branding-preview" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo preview`" />
+            <div class="stack compact">
+              <input
+                ref="teamLogoInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                :disabled="busy || !activeTeamId || !canManageMembers"
+                @change="uploadTeamLogo"
+              />
+              <div class="button-row">
+                <button
+                  class="btn btn-danger"
+                  type="button"
+                  :disabled="busy || !activeTeamId || !activeTeam?.logo_path || !canManageMembers"
+                  @click="removeTeamLogo"
+                >
+                  Remove Logo
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
 
         <form class="panel profile-editor" @submit.prevent="updateTeamProfile">
           <h4>Edit Team Profile</h4>

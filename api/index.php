@@ -162,6 +162,55 @@ function request_ip_address(): string
     return substr($forwarded, 0, 45);
 }
 
+function absolute_public_url(string $pathOrUrl): string
+{
+    $raw = trim($pathOrUrl);
+    if ($raw === '') {
+        return '';
+    }
+    if (preg_match('/^https?:\/\//i', $raw)) {
+        return $raw;
+    }
+    if ($raw[0] !== '/') {
+        $raw = '/' . $raw;
+    }
+    return rtrim(APP_PUBLIC_URL, '/') . $raw;
+}
+
+function default_brand_logo_url(): string
+{
+    if (APP_INVITE_LOGO_URL !== '') {
+        return absolute_public_url(APP_INVITE_LOGO_URL);
+    }
+    return absolute_public_url('/brand-mark.svg');
+}
+
+function team_logo_extension_for_mime(string $mimeType): ?string
+{
+    switch ($mimeType) {
+        case 'image/jpeg':
+            return 'jpg';
+        case 'image/png':
+            return 'png';
+        case 'image/webp':
+            return 'webp';
+        case 'image/gif':
+            return 'gif';
+        default:
+            return null;
+    }
+}
+
+function unlink_upload_relative_path(string $relativePath): void
+{
+    $path = APP_ROOT . $relativePath;
+    $dirReal = realpath(dirname($path)) ?: '';
+    $uploadReal = realpath(UPLOAD_ROOT) ?: '__none__';
+    if ($dirReal !== '' && str_starts_with_compat($dirReal, $uploadReal) && is_file($path)) {
+        @unlink($path);
+    }
+}
+
 function handle_account_update_profile(PDO $pdo): void
 {
     require_method('POST');
@@ -301,6 +350,12 @@ function handle_account_email_change_request(PDO $pdo): void
             : '<em>No reason provided.</em>';
         $approveEsc = htmlspecialchars($approveUrl, ENT_QUOTES, 'UTF-8');
         $denyEsc = htmlspecialchars($denyUrl, ENT_QUOTES, 'UTF-8');
+        $brandEsc = htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8');
+        $brandLogoUrl = default_brand_logo_url();
+        $brandLogoHtml = '';
+        if ($brandLogoUrl !== '') {
+            $brandLogoHtml = '<img src="' . htmlspecialchars($brandLogoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . $brandEsc . '" style="height:40px;width:40px;border-radius:10px;display:block;">';
+        }
         $subject = sprintf('Email change approval required (%s #%d)', APP_BRAND_NAME, $requestId);
         $plainText = implode("\r\n", [
             APP_BRAND_NAME . ' email change request requires review.',
@@ -321,10 +376,13 @@ function handle_account_email_change_request(PDO $pdo): void
             'Approve: ' . $approveUrl,
             'Deny: ' . $denyUrl,
         ]);
-        $htmlBody = '<!doctype html><html><body style="margin:0;background:#f4f6ff;font-family:Arial,sans-serif;color:#1b2940;">
-<div style="max-width:700px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;padding:20px;">
-<h2 style="margin:0 0 12px;">Email Change Request Review</h2>
-<p style="margin:0 0 14px;">A user requested a login email change on <strong>' . htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8') . '</strong>.</p>
+        $htmlBody = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#1b2940;">
+<div style="max-width:700px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:16px;overflow:hidden;">
+<div style="padding:18px 20px;background:linear-gradient(135deg,#15355f,#2f6ea9);color:#fff;">
+<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:12px;vertical-align:middle;">' . $brandLogoHtml . '</td><td style="vertical-align:middle;"><p style="margin:0;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">' . $brandEsc . '</p><h2 style="margin:2px 0 0;font-size:22px;color:#fff;">Email Change Review</h2></td></tr></table>
+</div>
+<div style="padding:20px;">
+<p style="margin:0 0 14px;">A user requested a login email change on <strong>' . $brandEsc . '</strong>.</p>
 <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
 <tr><td style="padding:6px 0;color:#4f5e78;">Request ID</td><td style="padding:6px 0;"><strong>#' . $requestId . '</strong></td></tr>
 <tr><td style="padding:6px 0;color:#4f5e78;">User ID</td><td style="padding:6px 0;"><strong>' . $uid . '</strong></td></tr>
@@ -342,7 +400,7 @@ function handle_account_email_change_request(PDO $pdo): void
 <p style="margin:0 0 10px;"><a href="' . $approveEsc . '" style="display:inline-block;background:#1f8a4d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Approve Email Change</a></p>
 <p style="margin:0 0 16px;"><a href="' . $denyEsc . '" style="display:inline-block;background:#b22d2d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Deny Request</a></p>
 <p style="margin:0;color:#67758f;font-size:12px;">Each link is single-use and expires automatically.</p>
-</div></body></html>';
+</div></div></body></html>';
 
         $sent = send_multipart_email(SUPPORT_EMAIL, $subject, $plainText, $htmlBody, SUPPORT_EMAIL);
         if (!$sent) {
@@ -418,6 +476,12 @@ function handle_account_email_request_decision(PDO $pdo): void
     $notifyPlain = '';
     $notifyHtml = '';
     $notifyTo = [];
+    $brandEsc = htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8');
+    $brandLogoUrl = default_brand_logo_url();
+    $brandLogoHtml = '';
+    if ($brandLogoUrl !== '') {
+        $brandLogoHtml = '<img src="' . htmlspecialchars($brandLogoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . $brandEsc . '" style="height:36px;width:36px;border-radius:9px;display:block;">';
+    }
 
     $pdo->beginTransaction();
     try {
@@ -475,10 +539,15 @@ function handle_account_email_request_decision(PDO $pdo): void
                 'New email: ' . $requestedEmail,
                 'Request ID: #' . $requestId,
             ]);
-            $notifyHtml = '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#17253d;">
-<p>Your email change request was approved.</p>
-<p><strong>Old email:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>New email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
-</body></html>';
+            $notifyHtml = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#17253d;">
+<div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;overflow:hidden;">
+<div style="padding:16px 18px;background:linear-gradient(135deg,#15355f,#2f6ea9);color:#fff;">
+<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:10px;">' . $brandLogoHtml . '</td><td><p style="margin:0;font-size:12px;opacity:0.9;letter-spacing:0.06em;text-transform:uppercase;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Email Change Approved</strong></td></tr></table>
+</div>
+<div style="padding:18px;">
+<p style="margin:0 0 12px;">Your email change request was approved.</p>
+<p style="margin:0;"><strong>Old email:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>New email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
+</div></div></body></html>';
             $notifyTo = [$requestedEmail, $currentEmail];
         } else {
             $denyStmt = $pdo->prepare(
@@ -494,10 +563,15 @@ function handle_account_email_request_decision(PDO $pdo): void
                 'Requested email: ' . $requestedEmail,
                 'Request ID: #' . $requestId,
             ]);
-            $notifyHtml = '<!doctype html><html><body style="font-family:Arial,sans-serif;color:#17253d;">
-<p>Your email change request was denied.</p>
-<p><strong>Current email remains:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Requested email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
-</body></html>';
+            $notifyHtml = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#17253d;">
+<div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;overflow:hidden;">
+<div style="padding:16px 18px;background:linear-gradient(135deg,#5b1321,#9d2f4c);color:#fff;">
+<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:10px;">' . $brandLogoHtml . '</td><td><p style="margin:0;font-size:12px;opacity:0.9;letter-spacing:0.06em;text-transform:uppercase;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Email Change Denied</strong></td></tr></table>
+</div>
+<div style="padding:18px;">
+<p style="margin:0 0 12px;">Your email change request was denied.</p>
+<p style="margin:0;"><strong>Current email remains:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Requested email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
+</div></div></body></html>';
             $notifyTo = [$currentEmail];
         }
 
@@ -695,6 +769,120 @@ function handle_team_update(PDO $pdo): void
             'ok' => false,
             'error' => 'Team metadata columns missing. Run database/migrations/2026-02-14-team-metadata.sql first.'
         ], 500);
+    }
+
+    $context = get_user_context($pdo, $uid);
+    json_response(['ok' => true, 'teams' => $context['teams']]);
+}
+
+function handle_team_logo_upload(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $teamId = (int) ($_POST['team_id'] ?? 0);
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+    require_team_admin_role($pdo, $uid, $teamId);
+    if (!isset($_FILES['logo'])) {
+        json_response(['ok' => false, 'error' => 'Team logo file is required.'], 422);
+    }
+
+    $file = $_FILES['logo'];
+    if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        json_response(['ok' => false, 'error' => 'Logo upload failed.'], 422);
+    }
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    if (!is_uploaded_file($tmpName)) {
+        json_response(['ok' => false, 'error' => 'Invalid upload source.'], 422);
+    }
+    $size = (int) ($file['size'] ?? 0);
+    if ($size <= 0 || $size > MAX_TEAM_LOGO_BYTES) {
+        json_response(['ok' => false, 'error' => 'Team logo must be under 8MB.'], 422);
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = (string) $finfo->file($tmpName);
+    $ext = team_logo_extension_for_mime($mimeType);
+    if ($ext === null) {
+        json_response(['ok' => false, 'error' => 'Logo must be JPG, PNG, WEBP, or GIF.'], 422);
+    }
+
+    $teamDirFs = UPLOAD_ROOT . '/team-' . $teamId;
+    $brandingDirFs = $teamDirFs . '/branding';
+    if (!is_dir($brandingDirFs) && !mkdir($brandingDirFs, 0755, true) && !is_dir($brandingDirFs)) {
+        json_response(['ok' => false, 'error' => 'Unable to create branding directory.'], 500);
+    }
+
+    $filename = 'logo-' . date('YmdHis') . '-' . bin2hex(random_bytes(5)) . '.' . $ext;
+    $destFs = $brandingDirFs . '/' . $filename;
+    if (!move_uploaded_file($tmpName, $destFs)) {
+        json_response(['ok' => false, 'error' => 'Failed to store team logo.'], 500);
+    }
+
+    $logoPath = '/uploads/team-' . $teamId . '/branding/' . $filename;
+    try {
+        $teamStmt = $pdo->prepare('SELECT logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+        if (!$team) {
+            @unlink($destFs);
+            json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+        }
+        $previousLogo = trim((string) ($team['logo_path'] ?? ''));
+
+        $updateStmt = $pdo->prepare('UPDATE teams SET logo_path = ? WHERE id = ?');
+        $updateStmt->execute([$logoPath, $teamId]);
+        if ($previousLogo !== '' && $previousLogo !== $logoPath) {
+            unlink_upload_relative_path($previousLogo);
+        }
+    } catch (Throwable $e) {
+        @unlink($destFs);
+        if (($e instanceof PDOException) && (string) $e->getCode() === '42S22') {
+            json_response([
+                'ok' => false,
+                'error' => 'Logo column missing. Run database/migrations/2026-02-14-team-logo.sql first.'
+            ], 500);
+        }
+        json_response(['ok' => false, 'error' => 'Unable to save team logo right now.'], 500);
+    }
+
+    $context = get_user_context($pdo, $uid);
+    json_response(['ok' => true, 'teams' => $context['teams'], 'logo_path' => $logoPath]);
+}
+
+function handle_team_logo_delete(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+    require_team_admin_role($pdo, $uid, $teamId);
+
+    try {
+        $teamStmt = $pdo->prepare('SELECT logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+        if (!$team) {
+            json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+        }
+        $previousLogo = trim((string) ($team['logo_path'] ?? ''));
+        if ($previousLogo !== '') {
+            $updateStmt = $pdo->prepare('UPDATE teams SET logo_path = NULL WHERE id = ?');
+            $updateStmt->execute([$teamId]);
+            unlink_upload_relative_path($previousLogo);
+        }
+    } catch (Throwable $e) {
+        if (($e instanceof PDOException) && (string) $e->getCode() === '42S22') {
+            json_response([
+                'ok' => false,
+                'error' => 'Logo column missing. Run database/migrations/2026-02-14-team-logo.sql first.'
+            ], 500);
+        }
+        json_response(['ok' => false, 'error' => 'Unable to remove team logo right now.'], 500);
     }
 
     $context = get_user_context($pdo, $uid);
@@ -1143,7 +1331,7 @@ function handle_invite_email(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'Please wait a few seconds before sending another invite.'], 429);
     }
 
-    $teamStmt = $pdo->prepare('SELECT name, join_code FROM teams WHERE id = ? LIMIT 1');
+    $teamStmt = $pdo->prepare('SELECT name, join_code, logo_path FROM teams WHERE id = ? LIMIT 1');
     $teamStmt->execute([$teamId]);
     $team = $teamStmt->fetch();
     if (!$team) {
@@ -1154,7 +1342,8 @@ function handle_invite_email(PDO $pdo): void
     $inviteUrl = $appUrl . '/?join=' . rawurlencode((string) $team['join_code']);
     $senderName = (string) ($_SESSION['display_name'] ?? 'A team member');
     $brandName = APP_BRAND_NAME;
-    $logoUrl = APP_INVITE_LOGO_URL;
+    $teamLogoPath = trim((string) ($team['logo_path'] ?? ''));
+    $logoUrl = $teamLogoPath !== '' ? absolute_public_url($teamLogoPath) : default_brand_logo_url();
 
     $subject = sprintf('Invitation to join %s on %s', (string) $team['name'], $brandName);
     $plainLines = [
@@ -1178,43 +1367,26 @@ function handle_invite_email(PDO $pdo): void
     $codeEsc = htmlspecialchars((string) $team['join_code'], ENT_QUOTES, 'UTF-8');
     $linkEsc = htmlspecialchars($inviteUrl, ENT_QUOTES, 'UTF-8');
     $messageEsc = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-    $logoHtml = '';
-    if ($logoUrl !== '') {
-        $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
-        $logoHtml = '<img src="' . $logoEsc . '" alt="' . $brandEsc . '" style="max-height:48px;display:block;margin-bottom:12px;">';
-    }
+    $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
+    $logoHtml = '<img src="' . $logoEsc . '" alt="' . $teamEsc . ' logo" style="height:44px;width:44px;border-radius:10px;display:block;">';
     $personalNoteHtml = $message !== ''
         ? '<p style="margin:16px 0 6px;color:#334;">Personal note:</p><div style="background:#f7f8fc;border-radius:10px;padding:10px 12px;color:#25324a;">' . $messageEsc . '</div>'
         : '';
     $html = '<!doctype html><html><body style="margin:0;background:#f2f5ff;font-family:Arial,sans-serif;color:#17253d;">
-<div style="max-width:640px;margin:28px auto;background:#fff;border-radius:14px;padding:24px;border:1px solid #dde5ff;">
-' . $logoHtml . '
+<div style="max-width:640px;margin:28px auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #dde5ff;">
+<div style="padding:16px 20px;background:linear-gradient(135deg,#133056,#1f5e94);color:#fff;">
+<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:12px;">' . $logoHtml . '</td><td><p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.9;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Team Invite</strong></td></tr></table>
+</div>
+<div style="padding:24px;">
 <h2 style="margin:0 0 12px;color:#0f2f59;">You are invited to join ' . $teamEsc . '</h2>
 <p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . $brandEsc . '.</p>
 <p style="margin:0 0 6px;color:#2e3c56;"><strong>Join code:</strong> ' . $codeEsc . '</p>
 <p style="margin:0 0 18px;"><a href="' . $linkEsc . '" style="display:inline-block;background:#ff5a2a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Open Invite Link</a></p>
 ' . $personalNoteHtml . '
 <p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>
-</div></body></html>';
+</div></div></body></html>';
 
-    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'snap.pucc.us'));
-    $fromAddress = 'noreply@' . ($host !== '' ? $host : 'snap.pucc.us');
-    $boundary = '=_slapshot_' . bin2hex(random_bytes(8));
-    $headers = [
-        'From: ' . $brandName . ' <' . $fromAddress . '>',
-        'Reply-To: ' . $fromAddress,
-        'MIME-Version: 1.0',
-        'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
-    ];
-    $body = '--' . $boundary . "\r\n";
-    $body .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
-    $body .= $plainText . "\r\n\r\n";
-    $body .= '--' . $boundary . "\r\n";
-    $body .= "Content-Type: text/html; charset=UTF-8\r\n\r\n";
-    $body .= $html . "\r\n\r\n";
-    $body .= '--' . $boundary . "--\r\n";
-
-    $ok = @mail($email, $subject, $body, implode("\r\n", $headers));
+    $ok = send_multipart_email($email, $subject, $plainText, $html);
     if (!$ok) {
         json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
     }
@@ -1259,6 +1431,12 @@ switch ($action) {
         break;
     case 'team_update':
         handle_team_update($pdo);
+        break;
+    case 'team_logo_upload':
+        handle_team_logo_upload($pdo);
+        break;
+    case 'team_logo_delete':
+        handle_team_logo_delete($pdo);
         break;
     case 'team_delete':
         handle_team_delete($pdo);
@@ -1305,6 +1483,8 @@ switch ($action) {
                 'team_create',
                 'team_join',
                 'team_update',
+                'team_logo_upload',
+                'team_logo_delete',
                 'team_delete',
                 'team_members',
                 'team_member_role',

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS teams (
   home_rink VARCHAR(160) NULL,
   city VARCHAR(120) NULL,
   team_notes TEXT NULL,
+  logo_path VARCHAR(255) NULL,
   slug VARCHAR(190) NOT NULL,
   join_code VARCHAR(20) NOT NULL,
   created_by BIGINT UNSIGNED NOT NULL,

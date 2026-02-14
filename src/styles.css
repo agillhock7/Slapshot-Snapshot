@@ -290,6 +290,22 @@ textarea {
   font-size: clamp(1.5rem, 5vw, 2.4rem);
 }
 
+.team-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.team-logo-badge {
+  width: 70px;
+  height: 70px;
+  border-radius: 16px;
+  border: 1px solid #c7d7eb;
+  background: #f5f9ff;
+  object-fit: cover;
+  box-shadow: 0 8px 18px rgba(17, 33, 62, 0.14);
+}
+
 .eyebrow {
   margin: 0;
   color: var(--muted);
@@ -355,6 +371,21 @@ textarea {
 .invite-card h3,
 .invite-card h4 {
   margin: 0;
+}
+
+.invite-team-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.invite-team-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  border: 1px solid #bfd4e8;
+  object-fit: cover;
+  background: #eff6ff;
 }
 
 .invite-graphic {
@@ -752,6 +783,30 @@ textarea {
   gap: 0.8rem;
 }
 
+.team-branding-card {
+  padding: 0.9rem;
+  border: 1px solid #c8d6ee;
+  background: linear-gradient(145deg, #f8fbff, #fff);
+  display: grid;
+  gap: 0.6rem;
+}
+
+.team-branding-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.team-branding-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 20px;
+  border: 1px solid #bfd0ea;
+  object-fit: cover;
+  background: #eff5ff;
+}
+
 .profile-editor {
   padding: 0.9rem;
   display: grid;
@@ -997,6 +1052,16 @@ textarea {
   .member-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .team-logo-badge {
+    width: 58px;
+    height: 58px;
+    border-radius: 14px;
+  }
+
+  .team-branding-row {
+    align-items: flex-start;
   }
 
   .invite-graphic {

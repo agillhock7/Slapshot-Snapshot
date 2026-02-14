@@ -12,6 +12,7 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Team member management (owner/admin/member roles)
 - Account management (display name + password update)
 - Support-reviewed email change requests with approve/deny workflow
+- Team branding with owner/admin logo upload + removal
 - Team profile metadata (age group, season year, level, rink, city, notes)
 - Team update and owner-only delete with double-confirm safeguard
 - Premium gallery experience: sort, group, rich detail modal, batch actions
@@ -32,6 +33,7 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 2. Import `database/schema.sql` into that database.
 3. If upgrading an existing install, run:
    - `database/migrations/2026-02-14-team-metadata.sql`
+   - `database/migrations/2026-02-14-team-logo.sql`
    - `database/migrations/2026-02-14-email-change-requests.sql`
 4. Copy `api/config.local.example.php` to `api/config.local.php`.
 5. Fill DB credentials in `api/config.local.php`.
