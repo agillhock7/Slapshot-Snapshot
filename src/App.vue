@@ -586,6 +586,7 @@ onBeforeUnmount(() => {
           <p class="eyebrow">Active Team</p>
           <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
           <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
+          <img class="hero-graphic" src="/graphics-rink-hero.svg" alt="Stylized hockey rink illustration" />
           <div class="stats">
             <article><p>Total</p><strong>{{ mediaItems.length }}</strong></article>
             <article><p>Photos</p><strong>{{ photoCount }}</strong></article>
@@ -596,6 +597,7 @@ onBeforeUnmount(() => {
 
         <article class="panel invite-card">
           <h3>Invite Center</h3>
+          <img class="invite-graphic" src="/graphics-invite-badge.svg" alt="Invite sharing graphic" />
           <p class="invite-code">{{ activeTeam?.join_code || "----" }}</p>
           <div class="button-row">
             <button class="btn btn-ghost" @click="copyInviteCode">Copy Code</button>
@@ -619,6 +621,7 @@ onBeforeUnmount(() => {
       <section v-if="activeTab === 'upload'" class="upload-grid">
         <article class="panel stack">
           <h3>Multi-File Upload</h3>
+          <p class="mini-note">Drop game photos and clips here to build your season timeline faster.</p>
           <div :class="['dropzone', { active: dragActive }]" @drop="onDrop" @dragover="onDragOver" @dragleave="onDragLeave">
             <p>Drag & drop files here or choose manually</p>
             <input type="file" accept="image/*,video/*" multiple @change="onFileInput" />

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="220" viewBox="0 0 640 220" fill="none">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a3e6f"/>
+      <stop offset="100%" stop-color="#2a7f91"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="16" width="616" height="188" rx="34" fill="url(#a)"/>
+  <path d="M12 75L320 156L628 75" stroke="#9adff7" stroke-opacity=".55" stroke-width="6"/>
+  <circle cx="120" cy="110" r="36" fill="#ff6e37"/>
+  <path d="M108 95L137 110L108 125V95Z" fill="white"/>
+  <text x="182" y="99" fill="#d9f5ff" font-family="Arial, sans-serif" font-size="30" font-weight="700">Invite Family</text>
+  <text x="182" y="135" fill="#96ddff" font-family="Arial, sans-serif" font-size="24">Share code, link, or email</text>
+</svg>
