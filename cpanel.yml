@@ -1,0 +1,7 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/puccus/snap.pucc.us
+    - /bin/echo "Deploying Slapshot Snapshot to ${DEPLOYPATH}"
+    - /bin/mkdir -p ${DEPLOYPATH}
+    - /bin/cp -R dist/* ${DEPLOYPATH}
