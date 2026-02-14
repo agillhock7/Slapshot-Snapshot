@@ -763,7 +763,7 @@ onBeforeUnmount(() => {
     <header class="topbar">
       <div class="brand">
         <p class="brand-kicker">Slapshot Snapshot</p>
-        <h1>Rink Relay</h1>
+        <h1>Slapshot Snapshot</h1>
       </div>
       <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">Sign out</button>
     </header>
