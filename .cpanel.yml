@@ -3,5 +3,10 @@ deployment:
   tasks:
     - export DEPLOYPATH=/home/puccus/snap.pucc.us
     - /bin/mkdir -p $DEPLOYPATH
+    - /bin/mkdir -p $DEPLOYPATH/api
+    - /bin/mkdir -p $DEPLOYPATH/uploads
     - /bin/cp -R dist/* $DEPLOYPATH
+    - /bin/cp -R api/* $DEPLOYPATH/api
+    - /bin/cp api/.htaccess $DEPLOYPATH/api/.htaccess
+    - /bin/cp uploads/.htaccess $DEPLOYPATH/uploads/.htaccess
     - /bin/cp .htaccess $DEPLOYPATH/.htaccess

@@ -1,50 +1,67 @@
 # Slapshot Snapshot
 
-Vue-powered photo/video showcase for sharing youth hockey memories with family and friends.
+Slapshot Snapshot is a multi-team media sharing app for hockey families, built for cPanel hosting:
 
-## Stack
+- Team spaces with join codes
+- Family/friend member onboarding
+- Photo and video uploads
+- YouTube link sharing
+- Team-scoped gallery with search and filtering
 
-- Vue 3
-- Vite
-- Static deploy via cPanel Git Version Control
+## Tech stack
 
-## Local development
+- Vue 3 + Vite frontend (`src/`)
+- PHP API (`api/index.php`)
+- MySQL 8 schema (`database/schema.sql`)
+- cPanel Git deployment via `.cpanel.yml`
 
+## First-time setup
+
+1. Create a MySQL database/user in cPanel.
+2. Import `database/schema.sql` into that database.
+3. Copy `api/config.local.example.php` to `api/config.local.php`.
+4. Fill DB credentials in `api/config.local.php`.
+5. Build frontend:
+   ```bash
+   npm install
+   npm run build
+   ```
+6. Commit and push to `main`.
+7. In cPanel Git Version Control, update and deploy HEAD commit.
+
+## Local run
+
+Frontend only:
 ```bash
-npm install
 npm run dev
 ```
 
-## Build for production
-
+Production build:
 ```bash
 npm run build
 ```
 
-This generates `dist/`, which is what cPanel deploys to:
+## Deployment behavior
 
-- `/home/puccus/snap.pucc.us`
+`.cpanel.yml` deploys to `/home/puccus/snap.pucc.us` and:
 
-## cPanel deployment
+1. Copies built frontend from `dist/`
+2. Copies backend API from `api/`
+3. Ensures `uploads/` exists and applies upload security rules
+4. Applies root `.htaccess`
 
-`.cpanel.yml` is configured to:
-
-1. Set deployment path to `/home/puccus/snap.pucc.us`
-2. Remove stale deployed files (while preserving `.well-known`)
-3. Copy fresh build files from `dist/`
-4. Copy hardened Apache config from `.htaccess`
-
-## Security defaults included
+## Security defaults
 
 - HTTPS redirect
+- Session-based auth with secure cookie flags
+- Team-level access control on API routes
+- Upload MIME validation and size limit
+- Upload directory blocks PHP execution
 - Security headers (`HSTS`, `CSP`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`)
-- SPA routing fallback to `index.html`
-- Directory listing disabled (`Options -Indexes`)
 
-## Customize media
+## Main paths
 
-Edit `src/media.js`:
-
-- `thumb`: card thumbnail image
-- `src`: full image URL or YouTube embed URL for videos
-- `type`: `photo` or `video`
+- Frontend app: `src/App.vue`
+- API router: `api/index.php`
+- DB schema: `database/schema.sql`
+- Deploy config: `.cpanel.yml`

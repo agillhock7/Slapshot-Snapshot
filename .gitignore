@@ -1,2 +1,6 @@
 node_modules/
 .DS_Store
+api/config.local.php
+uploads/*
+!uploads/.gitkeep
+!uploads/.htaccess

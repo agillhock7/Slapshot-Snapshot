@@ -1,0 +1,5 @@
+Options -Indexes
+
+<FilesMatch "^(config|db|helpers)(\.local)?\.php$">
+  Require all denied
+</FilesMatch>
