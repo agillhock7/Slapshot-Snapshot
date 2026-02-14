@@ -953,21 +953,60 @@ textarea {
 
 .site-footer {
   margin-top: 1.1rem;
-  padding: 0.85rem 0.3rem 0.2rem;
+  padding: 0.95rem 1rem;
   text-align: center;
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+}
+
+.site-footer-copy {
+  margin: 0;
   color: var(--muted);
   font-size: 0.82rem;
-  display: grid;
-  gap: 0.2rem;
-}
-
-.site-footer p {
-  margin: 0;
-}
-
-.site-footer a {
-  color: var(--night);
   font-weight: 700;
+}
+
+.site-footer-host {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.footer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 0.5rem 0.86rem;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  color: #fff;
+  background: linear-gradient(135deg, #17375f, #2f70b5);
+  border: 1px solid #1f4f82;
+  box-shadow: 0 8px 18px rgba(13, 31, 59, 0.24);
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.footer-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(13, 31, 59, 0.28);
+  filter: brightness(1.03);
+}
+
+.footer-pill:focus-visible {
+  outline: 3px solid #8dc4ff;
+  outline-offset: 2px;
+}
+
+.footer-pill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a9daff;
+  box-shadow: 0 0 10px rgba(169, 218, 255, 0.75);
 }
 
 @keyframes reveal {
@@ -1094,5 +1133,11 @@ textarea {
 
   .app-nav button span {
     font-size: 0.9rem;
+  }
+
+  .footer-pill {
+    width: 100%;
+    justify-content: center;
+    max-width: 360px;
   }
 }

@@ -1513,12 +1513,13 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <footer class="site-footer">
-      <p>&copy; {{ currentYear }} Dark Horses USA</p>
-      <p>
-        deployed via Dark Horse Virtue Pro Suite host account.
-        <a href="https://darkhorsevirtue.io" target="_blank" rel="noopener noreferrer">https://darkhorsevirtue.io</a>
-      </p>
+    <footer class="site-footer panel">
+      <p class="site-footer-copy">&copy; {{ currentYear }} Dark Horses USA</p>
+      <p class="site-footer-host">deployed via Dark Horse Virtue Pro Suite host account.</p>
+      <a class="footer-pill" href="https://darkhorsevirtue.io" target="_blank" rel="noopener noreferrer">
+        <span class="footer-pill-dot" aria-hidden="true"></span>
+        <span>https://darkhorsevirtue.io</span>
+      </a>
     </footer>
   </div>
 </template>
