@@ -5,7 +5,10 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Team spaces with join codes
 - Family/friend member onboarding
 - Photo and video uploads
+- Multi-file drag/drop uploads with progress
 - YouTube link sharing
+- Direct invite links (`?join=CODE`) with auto-join flow
+- One-click invite actions (copy/share/text/email) plus server-sent email invites
 - Team-scoped gallery with search and filtering
 
 ## Tech stack
@@ -57,7 +60,13 @@ npm run build
 - Team-level access control on API routes
 - Upload MIME validation and size limit
 - Upload directory blocks PHP execution
+- Invite email endpoint includes rate limiting
 - Security headers (`HSTS`, `CSP`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`)
+
+## Mail requirement for auto-invite
+
+The `invite_email` API action uses PHP `mail()`. On cPanel this typically works via local sendmail.
+If invite sending fails, verify outbound mail settings and domain email policies (SPF/DKIM).
 
 ## Main paths
 

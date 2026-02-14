@@ -63,6 +63,7 @@ function handle_register(PDO $pdo): void
         $pdo->commit();
 
         $_SESSION['user_id'] = $uid;
+        $_SESSION['display_name'] = $displayName;
         session_regenerate_id(true);
 
         $context = get_user_context($pdo, $uid);
@@ -104,6 +105,7 @@ function handle_login(PDO $pdo): void
     $_SESSION['user_id'] = (int) $user['id'];
     session_regenerate_id(true);
     $context = get_user_context($pdo, (int) $user['id']);
+    $_SESSION['display_name'] = (string) ($context['user']['display_name'] ?? '');
     json_response([
         'ok' => true,
         'authenticated' => true,
@@ -375,6 +377,87 @@ function handle_media_delete(PDO $pdo): void
     json_response(['ok' => true]);
 }
 
+function handle_invite_email(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $email = strtolower(trim((string) ($input['email'] ?? '')));
+    $message = trim((string) ($input['message'] ?? ''));
+
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+    require_team_membership($pdo, $uid, $teamId);
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        json_response(['ok' => false, 'error' => 'Valid recipient email required.'], 422);
+    }
+    if (strlen($message) > 500) {
+        json_response(['ok' => false, 'error' => 'Custom message must be 500 characters or fewer.'], 422);
+    }
+
+    $now = time();
+    $window = $_SESSION['invite_email_window'] ?? ['start' => $now, 'count' => 0];
+    if (!is_array($window) || ($window['start'] ?? 0) < ($now - 3600)) {
+        $window = ['start' => $now, 'count' => 0];
+    }
+    if (($window['count'] ?? 0) >= 20) {
+        json_response(['ok' => false, 'error' => 'Invite email rate limit reached. Try again later.'], 429);
+    }
+    $lastSent = (int) ($_SESSION['invite_email_last_sent'] ?? 0);
+    if ($lastSent > ($now - 10)) {
+        json_response(['ok' => false, 'error' => 'Please wait a few seconds before sending another invite.'], 429);
+    }
+
+    $teamStmt = $pdo->prepare('SELECT name, join_code FROM teams WHERE id = ? LIMIT 1');
+    $teamStmt->execute([$teamId]);
+    $team = $teamStmt->fetch();
+    if (!$team) {
+        json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+    }
+
+    $appUrl = 'https://snap.pucc.us';
+    $inviteUrl = $appUrl . '/?join=' . rawurlencode((string) $team['join_code']);
+    $senderName = (string) ($_SESSION['display_name'] ?? 'A team member');
+
+    $subject = sprintf('Invitation to join %s on Slapshot Snapshot', (string) $team['name']);
+    $bodyLines = [
+        sprintf('%s invited you to join "%s" on Slapshot Snapshot.', $senderName, (string) $team['name']),
+        '',
+        sprintf('Join code: %s', (string) $team['join_code']),
+        sprintf('Direct link: %s', $inviteUrl),
+    ];
+    if ($message !== '') {
+        $bodyLines[] = '';
+        $bodyLines[] = 'Personal note:';
+        $bodyLines[] = $message;
+    }
+    $bodyLines[] = '';
+    $bodyLines[] = 'See you at the rink.';
+    $body = implode("\r\n", $bodyLines);
+
+    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'snap.pucc.us'));
+    $fromAddress = 'noreply@' . ($host !== '' ? $host : 'snap.pucc.us');
+    $headers = [
+        'From: Slapshot Snapshot <' . $fromAddress . '>',
+        'Reply-To: ' . $fromAddress,
+        'Content-Type: text/plain; charset=UTF-8',
+    ];
+
+    $ok = @mail($email, $subject, $body, implode("\r\n", $headers));
+    if (!$ok) {
+        json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
+    }
+
+    $_SESSION['invite_email_last_sent'] = $now;
+    $window['count'] = (int) ($window['count'] ?? 0) + 1;
+    $_SESSION['invite_email_window'] = $window;
+
+    json_response(['ok' => true]);
+}
+
 $pdo = db();
 $action = (string) ($_GET['action'] ?? '');
 
@@ -409,6 +492,9 @@ switch ($action) {
     case 'media_delete':
         handle_media_delete($pdo);
         break;
+    case 'invite_email':
+        handle_invite_email($pdo);
+        break;
     default:
         json_response([
             'ok' => true,
@@ -423,7 +509,8 @@ switch ($action) {
                 'media_list',
                 'media_upload',
                 'media_external',
-                'media_delete'
+                'media_delete',
+                'invite_email'
             ]
         ]);
 }
