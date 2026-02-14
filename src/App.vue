@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
         </button>
       </nav>
 
-      <section v-if="activeTab === 'overview'" class="grid-overview">
+      <section v-if="activeTab === 'overview'" class="grid-overview tab-panel">
         <article class="panel hero">
           <p class="eyebrow">Active Team</p>
           <div class="team-identity">
@@ -1005,7 +1005,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section v-if="activeTab === 'upload'" class="upload-grid">
+      <section v-if="activeTab === 'upload'" class="upload-grid tab-panel">
         <article class="panel stack">
           <h3>Multi-File Upload</h3>
           <p class="mini-note">Drop game photos and clips here to build your season timeline faster.</p>
@@ -1038,7 +1038,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section v-if="activeTab === 'gallery'" class="panel padded">
+      <section v-if="activeTab === 'gallery'" class="panel padded tab-panel">
         <div class="toolbar gallery-toolbar">
           <div class="chips">
             <button
@@ -1254,7 +1254,7 @@ onBeforeUnmount(() => {
         <p v-else-if="hasMoreMedia" class="empty">Scroll for more...</p>
       </section>
 
-      <section v-if="activeTab === 'teams'" class="panel padded team-admin">
+      <section v-if="activeTab === 'teams'" class="panel padded team-admin tab-panel">
         <h3>Team Management</h3>
         <label>
           <span>Active Team</span>
@@ -1394,7 +1394,7 @@ onBeforeUnmount(() => {
         </article>
       </section>
 
-      <section v-if="activeTab === 'account'" class="account-layout">
+      <section v-if="activeTab === 'account'" class="account-layout tab-panel">
         <article class="panel padded account-card">
           <h3>Profile</h3>
           <p class="meta">Update your name and keep your account secure.</p>
