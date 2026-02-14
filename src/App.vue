@@ -895,7 +895,7 @@ onBeforeUnmount(() => {
         <img class="brand-mark" src="/brand-mark.svg" alt="Slapshot Snapshot logo mark" />
         <div class="brand-copy">
           <img class="brand-wordmark" src="/brand-wordmark.svg" alt="Slapshot Snapshot" />
-          <p class="brand-kicker">Private Team Media Experience</p>
+          <p class="brand-kicker">Season Highlights, Shared Privately</p>
         </div>
       </div>
       <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">Sign out</button>
@@ -955,7 +955,7 @@ onBeforeUnmount(() => {
             <img class="team-logo-badge" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo`" />
             <div>
               <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
-              <p class="meta">Custom logo + invite branding are team-specific.</p>
+              <p class="meta">Your team hub for every game-day moment.</p>
             </div>
           </div>
           <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
@@ -981,7 +981,7 @@ onBeforeUnmount(() => {
           <h3>Invite Center</h3>
           <div class="invite-team-head">
             <img class="invite-team-logo" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo`" />
-            <p class="meta">Your team logo is included in sent invite emails.</p>
+            <p class="meta">Every invite carries your team look.</p>
           </div>
           <img class="invite-graphic" src="/graphics-invite-badge.svg" alt="Invite sharing graphic" />
           <p class="invite-code">{{ activeTeam?.join_code || "----" }}</p>
@@ -1396,7 +1396,7 @@ onBeforeUnmount(() => {
       <section v-if="activeTab === 'account'" class="account-layout">
         <article class="panel padded account-card">
           <h3>Profile</h3>
-          <p class="meta">Manage your account identity and password used to access Slapshot Snapshot.</p>
+          <p class="meta">Update your name and keep your account secure.</p>
           <form class="stack compact" @submit.prevent="updateAccountProfile">
             <label>
               <span>Display Name</span>
