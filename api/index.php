@@ -468,11 +468,11 @@ function handle_media_list(PDO $pdo): void
         'SELECT m.*, u.display_name AS uploader_name
          FROM media_items m
          INNER JOIN users u ON u.id = m.uploader_user_id
-         WHERE m.team_id = ?
+         WHERE m.team_id = :team_id
          ORDER BY m.created_at DESC, m.id DESC'
          . ' LIMIT :limit OFFSET :offset'
     );
-    $stmt->bindValue(1, $teamId, PDO::PARAM_INT);
+    $stmt->bindValue(':team_id', $teamId, PDO::PARAM_INT);
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
     $stmt->execute();
