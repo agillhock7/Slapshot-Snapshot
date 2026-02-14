@@ -16,6 +16,12 @@ define('APP_PUBLIC_URL', getenv('APP_PUBLIC_URL') ?: (defined('LOCAL_APP_PUBLIC_
 define('APP_BRAND_NAME', getenv('APP_BRAND_NAME') ?: (defined('LOCAL_APP_BRAND_NAME') ? LOCAL_APP_BRAND_NAME : 'Slapshot Snapshot'));
 define('APP_INVITE_LOGO_URL', getenv('APP_INVITE_LOGO_URL') ?: (defined('LOCAL_APP_INVITE_LOGO_URL') ? LOCAL_APP_INVITE_LOGO_URL : ''));
 define('SUPPORT_EMAIL', getenv('SUPPORT_EMAIL') ?: (defined('LOCAL_SUPPORT_EMAIL') ? LOCAL_SUPPORT_EMAIL : 'support@pucc.us'));
+$defaultMailHost = (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: 'snap.pucc.us');
+$defaultMailFrom = 'noreply@' . $defaultMailHost;
+define('APP_MAIL_FROM_EMAIL', getenv('APP_MAIL_FROM_EMAIL') ?: (defined('LOCAL_APP_MAIL_FROM_EMAIL') ? LOCAL_APP_MAIL_FROM_EMAIL : $defaultMailFrom));
+define('APP_MAIL_FROM_NAME', getenv('APP_MAIL_FROM_NAME') ?: (defined('LOCAL_APP_MAIL_FROM_NAME') ? LOCAL_APP_MAIL_FROM_NAME : APP_BRAND_NAME));
+define('APP_MAIL_RETURN_PATH', getenv('APP_MAIL_RETURN_PATH') ?: (defined('LOCAL_APP_MAIL_RETURN_PATH') ? LOCAL_APP_MAIL_RETURN_PATH : APP_MAIL_FROM_EMAIL));
+define('APP_MAIL_REPLY_TO', getenv('APP_MAIL_REPLY_TO') ?: (defined('LOCAL_APP_MAIL_REPLY_TO') ? LOCAL_APP_MAIL_REPLY_TO : SUPPORT_EMAIL));
 
 define('APP_ROOT', dirname(__DIR__));
 define('UPLOAD_ROOT', APP_ROOT . '/uploads');

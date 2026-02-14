@@ -86,6 +86,19 @@ If invite sending fails, verify outbound mail settings and domain email policies
 
 The account email-change workflow also uses PHP `mail()` and sends support approval links to `support@pucc.us` by default.
 
+To improve inbox placement, set these in `api/config.local.php`:
+
+- `LOCAL_APP_MAIL_FROM_EMAIL` (recommended: a real mailbox on your domain, e.g. `noreply@snap.pucc.us`)
+- `LOCAL_APP_MAIL_FROM_NAME`
+- `LOCAL_APP_MAIL_RETURN_PATH`
+- `LOCAL_APP_MAIL_REPLY_TO`
+
+In cPanel, also verify:
+
+1. `Email Deliverability` shows SPF and DKIM as valid for your sending domain.
+2. The `From` mailbox exists (or is a valid route) on that domain.
+3. DMARC exists for the parent domain (start with `p=none`, tighten later).
+
 ## Image thumbnail optimization
 
 Photo uploads generate server-side thumbnails (used in gallery cards) when PHP GD functions are available.
@@ -99,6 +112,10 @@ In `api/config.local.php`, you can set:
 - `LOCAL_APP_BRAND_NAME`
 - `LOCAL_APP_INVITE_LOGO_URL`
 - `LOCAL_SUPPORT_EMAIL`
+- `LOCAL_APP_MAIL_FROM_EMAIL`
+- `LOCAL_APP_MAIL_FROM_NAME`
+- `LOCAL_APP_MAIL_RETURN_PATH`
+- `LOCAL_APP_MAIL_REPLY_TO`
 
 These values are used in branded HTML invite emails.
 

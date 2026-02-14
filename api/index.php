@@ -126,21 +126,101 @@ function handle_logout(): void
     json_response(['ok' => true]);
 }
 
+function clean_header_value(string $value): string
+{
+    return trim(str_replace(["\r", "\n"], '', $value));
+}
+
+function mail_delivery_host(): string
+{
+    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: ''));
+    if ($host !== '') {
+        return $host;
+    }
+    $fallback = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
+    return $fallback !== '' ? $fallback : 'snap.pucc.us';
+}
+
+function app_mail_from_email(): string
+{
+    $configured = clean_header_value((string) APP_MAIL_FROM_EMAIL);
+    if ($configured !== '' && filter_var($configured, FILTER_VALIDATE_EMAIL)) {
+        return strtolower($configured);
+    }
+    return 'noreply@' . mail_delivery_host();
+}
+
+function app_mail_from_name(): string
+{
+    $name = clean_header_value((string) APP_MAIL_FROM_NAME);
+    if ($name === '') {
+        $name = (string) APP_BRAND_NAME;
+    }
+    return $name;
+}
+
+function app_mail_reply_to(string $candidate, string $fallback): string
+{
+    $reply = clean_header_value($candidate);
+    if ($reply !== '' && filter_var($reply, FILTER_VALIDATE_EMAIL)) {
+        return strtolower($reply);
+    }
+    $configured = clean_header_value((string) APP_MAIL_REPLY_TO);
+    if ($configured !== '' && filter_var($configured, FILTER_VALIDATE_EMAIL)) {
+        return strtolower($configured);
+    }
+    return strtolower($fallback);
+}
+
+function app_mail_return_path(string $fallback): string
+{
+    $configured = clean_header_value((string) APP_MAIL_RETURN_PATH);
+    if ($configured !== '' && filter_var($configured, FILTER_VALIDATE_EMAIL)) {
+        return strtolower($configured);
+    }
+    return strtolower($fallback);
+}
+
+function mail_common_headers(string $fromAddress, string $replyTo, string $messageId): array
+{
+    $fromName = addcslashes(app_mail_from_name(), '"\\');
+    return [
+        'From: "' . $fromName . '" <' . $fromAddress . '>',
+        'Reply-To: ' . $replyTo,
+        'Sender: ' . $fromAddress,
+        'Return-Path: ' . $fromAddress,
+        'Date: ' . gmdate('D, d M Y H:i:s') . ' +0000',
+        'Message-ID: <' . $messageId . '>',
+        'X-Mailer: SlapshotSnapshotMailer/1.1',
+        'Auto-Submitted: auto-generated',
+        'X-Auto-Response-Suppress: All',
+    ];
+}
+
+function send_mail_with_optional_envelope(string $to, string $subject, string $body, string $headers, string $envelopeFrom): bool
+{
+    $params = '-f' . $envelopeFrom;
+    $ok = @mail($to, $subject, $body, $headers, $params);
+    if (!$ok) {
+        $ok = @mail($to, $subject, $body, $headers);
+    }
+    return $ok;
+}
+
 function send_multipart_email(string $to, string $subject, string $plainText, string $htmlBody, string $replyTo = ''): bool
 {
-    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
-    if ($host === '') {
-        $host = (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: 'snap.pucc.us');
-    }
-    $fromAddress = 'noreply@' . $host;
-    $reply = trim($replyTo) !== '' ? trim($replyTo) : $fromAddress;
+    $toClean = clean_header_value($to);
+    $subjectClean = clean_header_value($subject);
+    $fromAddress = app_mail_from_email();
+    $reply = app_mail_reply_to($replyTo, $fromAddress);
+    $envelopeFrom = app_mail_return_path($fromAddress);
+    $host = mail_delivery_host();
+    $messageId = bin2hex(random_bytes(12)) . '@' . $host;
     $boundary = '=_slapshot_' . bin2hex(random_bytes(8));
-    $headers = [
-        'From: ' . APP_BRAND_NAME . ' <' . $fromAddress . '>',
-        'Reply-To: ' . $reply,
+    $headers = array_merge(mail_common_headers($fromAddress, $reply, $messageId), [
         'MIME-Version: 1.0',
         'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
-    ];
+    ]);
 
     $body = '--' . $boundary . "\r\n";
     $body .= "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
@@ -150,24 +230,22 @@ function send_multipart_email(string $to, string $subject, string $plainText, st
     $body .= $htmlBody . "\r\n\r\n";
     $body .= '--' . $boundary . "--\r\n";
 
-    return @mail($to, $subject, $body, implode("\r\n", $headers));
+    return send_mail_with_optional_envelope($toClean, $subjectClean, $body, implode("\r\n", $headers), $envelopeFrom);
 }
 
 function send_plain_email(string $to, string $subject, string $plainText, string $replyTo = ''): bool
 {
-    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
-    if ($host === '') {
-        $host = (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: 'snap.pucc.us');
-    }
-    $fromAddress = 'noreply@' . $host;
-    $reply = trim($replyTo) !== '' ? trim($replyTo) : $fromAddress;
-    $headers = [
-        'From: ' . APP_BRAND_NAME . ' <' . $fromAddress . '>',
-        'Reply-To: ' . $reply,
+    $toClean = clean_header_value($to);
+    $subjectClean = clean_header_value($subject);
+    $fromAddress = app_mail_from_email();
+    $reply = app_mail_reply_to($replyTo, $fromAddress);
+    $envelopeFrom = app_mail_return_path($fromAddress);
+    $messageId = bin2hex(random_bytes(12)) . '@' . mail_delivery_host();
+    $headers = array_merge(mail_common_headers($fromAddress, $reply, $messageId), [
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=UTF-8',
-    ];
-    return @mail($to, $subject, $plainText, implode("\r\n", $headers));
+    ]);
+    return send_mail_with_optional_envelope($toClean, $subjectClean, $plainText, implode("\r\n", $headers), $envelopeFrom);
 }
 
 function request_ip_address(): string
