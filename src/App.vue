@@ -896,7 +896,7 @@ onBeforeUnmount(() => {
         <img class="brand-mark" src="/brand-mark.svg" alt="Slapshot Snapshot logo mark" />
         <div class="brand-copy">
           <img class="brand-wordmark" src="/brand-wordmark.svg" alt="Slapshot Snapshot" />
-          <p class="brand-kicker">Season Highlights, Shared Privately</p>
+          <p class="brand-kicker">Team Photos and Videos</p>
         </div>
       </div>
       <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">Sign out</button>
