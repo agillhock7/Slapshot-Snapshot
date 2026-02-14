@@ -946,6 +946,39 @@ textarea:focus {
   box-shadow: 6px 6px 15px rgba(117, 141, 176, 0.14), -5px -5px 12px rgba(255, 255, 255, 0.84);
 }
 
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.owner-lock-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+  border-radius: 999px;
+  border: 1px solid #f0d7a7;
+  background: linear-gradient(150deg, #fff4df, #fffdf5);
+  color: #754605;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 800;
+  box-shadow: inset 1px 1px 3px rgba(196, 146, 66, 0.2), inset -2px -2px 4px rgba(255, 255, 255, 0.9);
+}
+
+.owner-lock-tag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ca8b24;
+  box-shadow: 0 0 0 2px rgba(250, 226, 178, 0.9);
+}
+
 .profile-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

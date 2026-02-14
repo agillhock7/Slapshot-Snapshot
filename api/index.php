@@ -900,7 +900,10 @@ function handle_team_update(PDO $pdo): void
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
-    $role = require_team_admin_role($pdo, $uid, $teamId);
+    $role = require_team_membership($pdo, $uid, $teamId);
+    if ($role !== 'owner') {
+        json_response(['ok' => false, 'error' => 'Only the team owner can edit the team profile.'], 403);
+    }
 
     $name = trim((string) ($input['name'] ?? ''));
     if ($name === '' || strlen($name) > 160) {
@@ -946,7 +949,10 @@ function handle_team_logo_upload(PDO $pdo): void
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
-    require_team_admin_role($pdo, $uid, $teamId);
+    $role = require_team_membership($pdo, $uid, $teamId);
+    if ($role !== 'owner') {
+        json_response(['ok' => false, 'error' => 'Only the team owner can update the team logo.'], 403);
+    }
     if (!isset($_FILES['logo'])) {
         json_response(['ok' => false, 'error' => 'Team logo file is required.'], 422);
     }
@@ -1023,7 +1029,10 @@ function handle_team_logo_delete(PDO $pdo): void
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
-    require_team_admin_role($pdo, $uid, $teamId);
+    $role = require_team_membership($pdo, $uid, $teamId);
+    if ($role !== 'owner') {
+        json_response(['ok' => false, 'error' => 'Only the team owner can remove the team logo.'], 403);
+    }
 
     try {
         $teamStmt = $pdo->prepare('SELECT logo_path FROM teams WHERE id = ? LIMIT 1');

@@ -98,7 +98,8 @@ const activeTeamRole = computed(() => activeTeam.value?.role || "member");
 const canManageMembers = computed(
   () => activeTeamRole.value === "owner" || activeTeamRole.value === "admin"
 );
-const canDeleteTeam = computed(() => activeTeamRole.value === "owner");
+const isTeamOwner = computed(() => activeTeamRole.value === "owner");
+const canDeleteTeam = computed(() => isTeamOwner.value);
 const photoCount = computed(() => mediaStats.photos || mediaItems.value.filter((item) => item.media_type === "photo").length);
 const videoCount = computed(() => mediaStats.videos || mediaItems.value.filter((item) => item.media_type === "video").length);
 const totalMediaCount = computed(() => mediaStats.total || mediaItems.value.length);
@@ -734,7 +735,7 @@ async function requestEmailChange() {
 }
 
 async function updateTeamProfile() {
-  if (!activeTeamId.value) return;
+  if (!activeTeamId.value || !isTeamOwner.value) return;
   await withBusy(async () => {
     const payload = await apiPost("team_update", {
       team_id: activeTeamId.value,
@@ -748,7 +749,7 @@ async function updateTeamProfile() {
 
 async function uploadTeamLogo(event) {
   const file = event?.target?.files?.[0];
-  if (!file || !activeTeamId.value) return;
+  if (!file || !activeTeamId.value || !isTeamOwner.value) return;
   await withBusy(async () => {
     const formData = new FormData();
     formData.append("team_id", String(activeTeamId.value));
@@ -762,7 +763,7 @@ async function uploadTeamLogo(event) {
 }
 
 async function removeTeamLogo() {
-  if (!activeTeamId.value || !activeTeam.value?.logo_path) return;
+  if (!activeTeamId.value || !activeTeam.value?.logo_path || !isTeamOwner.value) return;
   if (!window.confirm("Remove this team logo?")) return;
   await withBusy(async () => {
     const payload = await apiPost("team_logo_delete", { team_id: activeTeamId.value });
@@ -1341,6 +1342,7 @@ onBeforeUnmount(() => {
         <article class="panel team-branding-card">
           <h4>Team Branding</h4>
           <p class="meta">Upload a team logo to personalize invites and in-app team visuals.</p>
+          <p v-if="!isTeamOwner" class="meta">Only the team owner can update team branding.</p>
           <div class="team-branding-row">
             <img class="team-branding-preview" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo preview`" />
             <div class="stack compact">
@@ -1348,14 +1350,14 @@ onBeforeUnmount(() => {
                 ref="teamLogoInput"
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"
-                :disabled="busy || !activeTeamId || !canManageMembers"
+                :disabled="busy || !activeTeamId || !isTeamOwner"
                 @change="uploadTeamLogo"
               />
               <div class="button-row">
                 <button
                   class="btn btn-danger"
                   type="button"
-                  :disabled="busy || !activeTeamId || !activeTeam?.logo_path || !canManageMembers"
+                  :disabled="busy || !activeTeamId || !activeTeam?.logo_path || !isTeamOwner"
                   @click="removeTeamLogo"
                 >
                   Remove Logo
@@ -1366,42 +1368,47 @@ onBeforeUnmount(() => {
         </article>
 
         <form class="panel profile-editor" @submit.prevent="updateTeamProfile">
-          <h4>Edit Team Profile</h4>
+          <div class="section-title-row">
+            <h4>Edit Team Profile</h4>
+            <span v-if="!isTeamOwner" class="owner-lock-tag" aria-label="Owner-only section">Owner only</span>
+          </div>
+          <p v-if="!isTeamOwner" class="meta">Only the team owner can edit team profile details.</p>
           <div class="profile-grid">
             <label>
               <span>Team Name</span>
-              <input v-model="teamProfileForm.name" required />
+              <input v-model="teamProfileForm.name" :disabled="busy || !activeTeamId || !isTeamOwner" required />
             </label>
             <label>
               <span>Age Group</span>
-              <input v-model="teamProfileForm.age_group" placeholder="e.g. 12U, 14U, Varsity" />
+              <input v-model="teamProfileForm.age_group" :disabled="busy || !activeTeamId || !isTeamOwner" placeholder="e.g. 12U, 14U, Varsity" />
             </label>
             <label>
               <span>Season Year</span>
-              <input v-model="teamProfileForm.season_year" placeholder="e.g. 2026-2027" />
+              <input v-model="teamProfileForm.season_year" :disabled="busy || !activeTeamId || !isTeamOwner" placeholder="e.g. 2026-2027" />
             </label>
             <label>
               <span>Level</span>
-              <input v-model="teamProfileForm.level" placeholder="e.g. AA, Travel, House" />
+              <input v-model="teamProfileForm.level" :disabled="busy || !activeTeamId || !isTeamOwner" placeholder="e.g. AA, Travel, House" />
             </label>
             <label>
               <span>Home Rink</span>
-              <input v-model="teamProfileForm.home_rink" placeholder="Main arena name" />
+              <input v-model="teamProfileForm.home_rink" :disabled="busy || !activeTeamId || !isTeamOwner" placeholder="Main arena name" />
             </label>
             <label>
               <span>City</span>
-              <input v-model="teamProfileForm.city" placeholder="City / Region" />
+              <input v-model="teamProfileForm.city" :disabled="busy || !activeTeamId || !isTeamOwner" placeholder="City / Region" />
             </label>
           </div>
           <label>
             <span>Team Notes</span>
             <textarea
               v-model="teamProfileForm.team_notes"
+              :disabled="busy || !activeTeamId || !isTeamOwner"
               rows="3"
               placeholder="Schedule notes, tournament focus, team highlights..."
             />
           </label>
-          <button class="btn" :disabled="busy || !activeTeamId">Save Team Profile</button>
+          <button class="btn" :disabled="busy || !activeTeamId || !isTeamOwner">Save Team Profile</button>
         </form>
 
         <h4>Members</h4>
