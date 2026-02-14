@@ -452,42 +452,44 @@ function handle_media_list(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
     require_team_membership($pdo, $uid, $teamId);
+    try {
+        $summaryStmt = $pdo->prepare(
+            "SELECT
+                COUNT(*) AS total_count,
+                SUM(CASE WHEN media_type = 'photo' THEN 1 ELSE 0 END) AS photo_count,
+                SUM(CASE WHEN media_type = 'video' THEN 1 ELSE 0 END) AS video_count
+             FROM media_items
+             WHERE team_id = ?"
+        );
+        $summaryStmt->execute([$teamId]);
+        $summary = $summaryStmt->fetch() ?: ['total_count' => 0, 'photo_count' => 0, 'video_count' => 0];
 
-    $summaryStmt = $pdo->prepare(
-        'SELECT
-            COUNT(*) AS total_count,
-            SUM(CASE WHEN media_type = "photo" THEN 1 ELSE 0 END) AS photo_count,
-            SUM(CASE WHEN media_type = "video" THEN 1 ELSE 0 END) AS video_count
-         FROM media_items
-         WHERE team_id = ?'
-    );
-    $summaryStmt->execute([$teamId]);
-    $summary = $summaryStmt->fetch() ?: ['total_count' => 0, 'photo_count' => 0, 'video_count' => 0];
-
-    $stmt = $pdo->prepare(
-        'SELECT m.*, u.display_name AS uploader_name
-         FROM media_items m
-         INNER JOIN users u ON u.id = m.uploader_user_id
-         WHERE m.team_id = :team_id
-         ORDER BY m.created_at DESC, m.id DESC'
-         . ' LIMIT :limit OFFSET :offset'
-    );
-    $stmt->bindValue(':team_id', $teamId, PDO::PARAM_INT);
-    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-    $stmt->execute();
-    $items = array_map('format_media_row', $stmt->fetchAll());
-    $totalCount = (int) ($summary['total_count'] ?? 0);
-    $nextOffset = $offset + count($items);
-    json_response([
-        'ok' => true,
-        'items' => $items,
-        'total_count' => $totalCount,
-        'photo_count' => (int) ($summary['photo_count'] ?? 0),
-        'video_count' => (int) ($summary['video_count'] ?? 0),
-        'next_offset' => $nextOffset,
-        'has_more' => $nextOffset < $totalCount
-    ]);
+        $stmt = $pdo->prepare(
+            'SELECT m.*, u.display_name AS uploader_name
+             FROM media_items m
+             INNER JOIN users u ON u.id = m.uploader_user_id
+             WHERE m.team_id = :team_id
+             ORDER BY m.created_at DESC, m.id DESC'
+             . sprintf(' LIMIT %d OFFSET %d', $limit, $offset)
+        );
+        $stmt->bindValue(':team_id', $teamId, PDO::PARAM_INT);
+        $stmt->execute();
+        $items = array_map('format_media_row', $stmt->fetchAll());
+        $totalCount = (int) ($summary['total_count'] ?? 0);
+        $nextOffset = $offset + count($items);
+        json_response([
+            'ok' => true,
+            'items' => $items,
+            'total_count' => $totalCount,
+            'photo_count' => (int) ($summary['photo_count'] ?? 0),
+            'video_count' => (int) ($summary['video_count'] ?? 0),
+            'next_offset' => $nextOffset,
+            'has_more' => $nextOffset < $totalCount
+        ]);
+    } catch (Throwable $e) {
+        error_log('media_list failed: ' . $e->getMessage());
+        json_response(['ok' => false, 'error' => 'Unable to load media right now.'], 500);
+    }
 }
 
 function media_upload_type(string $mimeType): ?string
