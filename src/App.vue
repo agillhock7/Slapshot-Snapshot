@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { apiGet, apiPost, apiUpload } from "./api";
 
+const APP_URL = "https://snap.pucc.us";
+
 const loadingSession = ref(true);
 const busy = ref(false);
 const user = ref(null);
@@ -40,7 +42,6 @@ const isAuthenticated = computed(() => !!user.value);
 const activeTeam = computed(() =>
   teams.value.find((team) => Number(team.id) === Number(activeTeamId.value))
 );
-
 const filteredMedia = computed(() => {
   const type = mediaFilter.value;
   const query = searchQuery.value.toLowerCase().trim();
@@ -51,6 +52,17 @@ const filteredMedia = computed(() => {
     return text.includes(query);
   });
 });
+const photoCount = computed(
+  () => mediaItems.value.filter((item) => item.media_type === "photo").length
+);
+const videoCount = computed(
+  () => mediaItems.value.filter((item) => item.media_type === "video").length
+);
+const newestMedia = computed(() => mediaItems.value[0] || null);
+const inviteCopy = computed(() => {
+  if (!activeTeam.value) return "";
+  return `Join "${activeTeam.value.name}" on Slapshot Snapshot with code ${activeTeam.value.join_code}. ${APP_URL}`;
+});
 
 function setBanner(type, message) {
   banner.type = type;
@@ -60,6 +72,11 @@ function setBanner(type, message) {
 function clearBanner() {
   banner.type = "";
   banner.message = "";
+}
+
+function displayDate(date) {
+  if (!date) return "No date";
+  return new Date(`${date}T00:00:00`).toLocaleDateString();
 }
 
 function applySession(payload) {
@@ -79,9 +96,7 @@ async function loadSession() {
     const payload = await apiGet("session");
     if (payload.authenticated) {
       applySession(payload);
-      if (activeTeamId.value) {
-        await loadMedia();
-      }
+      if (activeTeamId.value) await loadMedia();
     } else {
       user.value = null;
       teams.value = [];
@@ -222,13 +237,57 @@ async function deleteMedia(id) {
   });
 }
 
-function onFileInput(event) {
-  uploadFileForm.file = event.target.files?.[0] || null;
+async function copyInviteCode() {
+  if (!activeTeam.value) return;
+  try {
+    await navigator.clipboard.writeText(activeTeam.value.join_code);
+    setBanner("success", "Invite code copied.");
+  } catch {
+    setBanner("error", "Clipboard not available on this browser.");
+  }
 }
 
-function displayDate(date) {
-  if (!date) return "No date";
-  return new Date(`${date}T00:00:00`).toLocaleDateString();
+async function copyInviteMessage() {
+  if (!activeTeam.value) return;
+  try {
+    await navigator.clipboard.writeText(inviteCopy.value);
+    setBanner("success", "Invite message copied.");
+  } catch {
+    setBanner("error", "Clipboard not available on this browser.");
+  }
+}
+
+async function nativeShareInvite() {
+  if (!activeTeam.value) return;
+  if (!navigator.share) {
+    setBanner("error", "Native share not supported on this browser.");
+    return;
+  }
+  try {
+    await navigator.share({
+      title: `Join ${activeTeam.value.name}`,
+      text: inviteCopy.value,
+      url: APP_URL
+    });
+    setBanner("success", "Invite shared.");
+  } catch {
+    // user canceled share; no banner needed
+  }
+}
+
+function smsInviteLink() {
+  const text = encodeURIComponent(inviteCopy.value);
+  return `sms:?&body=${text}`;
+}
+
+function emailInviteLink() {
+  const subject = encodeURIComponent(`Join ${activeTeam.value?.name || "our team"} on Slapshot Snapshot`);
+  const body = encodeURIComponent(inviteCopy.value);
+  return `mailto:?subject=${subject}&body=${body}`;
+}
+
+function onFileInput(event) {
+  uploadFileForm.file = event.target.files?.[0] || null;
 }
 
 onMounted(loadSession);
@@ -239,7 +298,7 @@ onMounted(loadSession);
     <header class="topbar">
       <div>
         <p class="brand-kicker">Slapshot Snapshot</p>
-        <h1>Team Media Hub</h1>
+        <h1>Team Storyboard</h1>
       </div>
       <button v-if="isAuthenticated" class="btn btn-ghost" :disabled="busy" @click="logout">
         Sign out
@@ -263,14 +322,8 @@ onMounted(loadSession);
       </div>
 
       <form v-if="authMode === 'register'" class="form-grid" @submit.prevent="register">
-        <label>
-          <span>Name</span>
-          <input v-model="registerForm.display_name" required />
-        </label>
-        <label>
-          <span>Email</span>
-          <input v-model="registerForm.email" type="email" required />
-        </label>
+        <label><span>Name</span><input v-model="registerForm.display_name" required /></label>
+        <label><span>Email</span><input v-model="registerForm.email" type="email" required /></label>
         <label>
           <span>Password</span>
           <input v-model="registerForm.password" type="password" minlength="8" required />
@@ -283,10 +336,7 @@ onMounted(loadSession);
       </form>
 
       <form v-else class="form-grid" @submit.prevent="login">
-        <label>
-          <span>Email</span>
-          <input v-model="loginForm.email" type="email" required />
-        </label>
+        <label><span>Email</span><input v-model="loginForm.email" type="email" required /></label>
         <label>
           <span>Password</span>
           <input v-model="loginForm.password" type="password" required />
@@ -295,100 +345,146 @@ onMounted(loadSession);
       </form>
     </section>
 
-    <section v-else class="layout">
-      <aside class="panel sidebar">
-        <h2>Your Teams</h2>
-        <label>
-          <span>Active Team</span>
-          <select v-model="activeTeamId" @change="switchTeam">
-            <option v-for="team in teams" :key="team.id" :value="Number(team.id)">
-              {{ team.name }} ({{ team.member_count }} members)
-            </option>
-          </select>
-        </label>
-        <p v-if="activeTeam" class="invite">
-          Invite code: <strong>{{ activeTeam.join_code }}</strong>
-        </p>
-
-        <form class="stack" @submit.prevent="createTeam">
-          <h3>Create Team</h3>
-          <input v-model="createTeamForm.name" placeholder="Next season team name" required />
-          <button class="btn" :disabled="busy">Create Team</button>
-        </form>
-
-        <form class="stack" @submit.prevent="joinTeam">
-          <h3>Join Team</h3>
-          <input v-model="joinTeamForm.join_code" placeholder="Enter join code" required />
-          <button class="btn btn-secondary" :disabled="busy">Join</button>
-        </form>
-      </aside>
-
-      <main class="panel main">
-        <section class="upload-grid">
-          <form class="stack" @submit.prevent="uploadFile">
-            <h3>Upload Photo/Video</h3>
-            <input v-model="uploadFileForm.title" placeholder="Title" />
-            <textarea v-model="uploadFileForm.description" rows="2" placeholder="Description" />
-            <input v-model="uploadFileForm.game_date" type="date" />
-            <input type="file" accept="image/*,video/*" @change="onFileInput" required />
-            <button class="btn" :disabled="busy || !activeTeamId">Upload</button>
-          </form>
-
-          <form class="stack" @submit.prevent="uploadLink">
-            <h3>Share YouTube Video</h3>
-            <input v-model="uploadLinkForm.title" placeholder="Title" required />
-            <textarea v-model="uploadLinkForm.description" rows="2" placeholder="Description" />
-            <input v-model="uploadLinkForm.game_date" type="date" />
-            <input
-              v-model="uploadLinkForm.url"
-              type="url"
-              placeholder="https://youtube.com/watch?v=..."
-              required
-            />
-            <button class="btn btn-secondary" :disabled="busy || !activeTeamId">Share Link</button>
-          </form>
-        </section>
-
-        <section class="toolbar">
-          <div class="chips">
-            <button
-              v-for="type in ['all', 'photo', 'video']"
-              :key="type"
-              :class="['chip', { active: mediaFilter === type }]"
-              @click="mediaFilter = type"
-            >
-              {{ type }}
-            </button>
-          </div>
-          <input v-model="searchQuery" placeholder="Search titles, captions, uploader..." />
-        </section>
-
-        <section class="gallery">
-          <article
-            v-for="item in filteredMedia"
-            :key="item.id"
-            class="media-card"
-            @click="modalItem = item"
-          >
-            <img
-              v-if="item.media_type === 'photo'"
-              :src="item.file_path || item.thumbnail_url"
-              :alt="item.title"
-            />
-            <img
-              v-else
-              :src="item.thumbnail_url || '/video-placeholder.svg'"
-              :alt="item.title"
-            />
-            <div class="copy">
-              <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
-              <h4>{{ item.title }}</h4>
-              <p>{{ item.description || "No description yet." }}</p>
-            </div>
+    <section v-else class="dashboard">
+      <section class="hero panel">
+        <div>
+          <p class="eyebrow">Active Team</p>
+          <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
+          <p class="hero-copy">
+            Capture every shift, highlight every goal, and keep your full family circle connected.
+          </p>
+        </div>
+        <div class="stats">
+          <article>
+            <p>Total</p>
+            <strong>{{ mediaItems.length }}</strong>
           </article>
-          <p v-if="filteredMedia.length === 0" class="empty">No media found for this filter yet.</p>
-        </section>
-      </main>
+          <article>
+            <p>Photos</p>
+            <strong>{{ photoCount }}</strong>
+          </article>
+          <article>
+            <p>Videos</p>
+            <strong>{{ videoCount }}</strong>
+          </article>
+          <article>
+            <p>Latest</p>
+            <strong>{{ newestMedia ? displayDate(newestMedia.game_date) : "-" }}</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="layout">
+        <aside class="column">
+          <article class="panel stack">
+            <h3>Team Control</h3>
+            <label>
+              <span>Active Team</span>
+              <select v-model="activeTeamId" @change="switchTeam">
+                <option v-for="team in teams" :key="team.id" :value="Number(team.id)">
+                  {{ team.name }} ({{ team.member_count }} members)
+                </option>
+              </select>
+            </label>
+            <form class="stack compact" @submit.prevent="createTeam">
+              <input v-model="createTeamForm.name" placeholder="Create new team" required />
+              <button class="btn" :disabled="busy">Create Team</button>
+            </form>
+            <form class="stack compact" @submit.prevent="joinTeam">
+              <input v-model="joinTeamForm.join_code" placeholder="Join with code" required />
+              <button class="btn btn-secondary" :disabled="busy">Join Team</button>
+            </form>
+          </article>
+
+          <article class="panel stack invite-card">
+            <h3>Invite & Share</h3>
+            <p class="invite-code">{{ activeTeam?.join_code || "----" }}</p>
+            <div class="button-row">
+              <button class="btn btn-ghost" @click="copyInviteCode">Copy Code</button>
+              <button class="btn btn-ghost" @click="copyInviteMessage">Copy Invite</button>
+            </div>
+            <div class="button-row">
+              <button class="btn" @click="nativeShareInvite">Share</button>
+              <a class="btn btn-secondary link-btn" :href="smsInviteLink()">Text Invite</a>
+              <a class="btn btn-secondary link-btn" :href="emailInviteLink()">Email Invite</a>
+            </div>
+            <p class="meta">Invite text includes team name, join code, and app URL.</p>
+          </article>
+        </aside>
+
+        <main class="column">
+          <section class="upload-grid">
+            <form class="panel stack" @submit.prevent="uploadFile">
+              <h3>Quick Upload</h3>
+              <input v-model="uploadFileForm.title" placeholder="Title" />
+              <textarea v-model="uploadFileForm.description" rows="2" placeholder="Description" />
+              <input v-model="uploadFileForm.game_date" type="date" />
+              <input type="file" accept="image/*,video/*" @change="onFileInput" required />
+              <button class="btn" :disabled="busy || !activeTeamId">Upload Media</button>
+            </form>
+
+            <form class="panel stack" @submit.prevent="uploadLink">
+              <h3>Share YouTube Clip</h3>
+              <input v-model="uploadLinkForm.title" placeholder="Title" required />
+              <textarea v-model="uploadLinkForm.description" rows="2" placeholder="Description" />
+              <input v-model="uploadLinkForm.game_date" type="date" />
+              <input
+                v-model="uploadLinkForm.url"
+                type="url"
+                placeholder="https://youtube.com/watch?v=..."
+                required
+              />
+              <button class="btn btn-secondary" :disabled="busy || !activeTeamId">
+                Share Video Link
+              </button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="toolbar">
+              <div class="chips">
+                <button
+                  v-for="type in ['all', 'photo', 'video']"
+                  :key="type"
+                  :class="['chip', { active: mediaFilter === type }]"
+                  @click="mediaFilter = type"
+                >
+                  {{ type }}
+                </button>
+              </div>
+              <input v-model="searchQuery" placeholder="Search title, caption, uploader..." />
+            </div>
+
+            <section class="gallery">
+              <article
+                v-for="item in filteredMedia"
+                :key="item.id"
+                class="media-card"
+                @click="modalItem = item"
+              >
+                <img
+                  v-if="item.media_type === 'photo'"
+                  :src="item.file_path || item.thumbnail_url"
+                  :alt="item.title"
+                />
+                <img
+                  v-else
+                  :src="item.thumbnail_url || '/video-placeholder.svg'"
+                  :alt="item.title"
+                />
+                <div class="copy">
+                  <p class="meta">{{ displayDate(item.game_date) }} · {{ item.uploader_name }}</p>
+                  <h4>{{ item.title }}</h4>
+                  <p>{{ item.description || "No description yet." }}</p>
+                </div>
+              </article>
+            </section>
+            <p v-if="filteredMedia.length === 0" class="empty">
+              No media found for this filter yet.
+            </p>
+          </section>
+        </main>
+      </section>
     </section>
 
     <section v-if="modalItem" class="modal-backdrop" @click.self="modalItem = null">
