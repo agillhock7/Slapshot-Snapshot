@@ -10,6 +10,8 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Direct invite links (`?join=CODE`) with auto-join flow
 - One-click invite actions (copy/share/text/email) plus server-sent email invites
 - Team member management (owner/admin/member roles)
+- Team profile metadata (age group, season year, level, rink, city, notes)
+- Team update and owner-only delete with double-confirm safeguard
 - Infinite-scroll gallery with lazy-loaded media cards
 - Team-scoped gallery with search and filtering
 
@@ -24,15 +26,16 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 
 1. Create a MySQL database/user in cPanel.
 2. Import `database/schema.sql` into that database.
-3. Copy `api/config.local.example.php` to `api/config.local.php`.
-4. Fill DB credentials in `api/config.local.php`.
-5. Build frontend:
+3. If upgrading an existing install, run `database/migrations/2026-02-14-team-metadata.sql`.
+4. Copy `api/config.local.example.php` to `api/config.local.php`.
+5. Fill DB credentials in `api/config.local.php`.
+6. Build frontend:
    ```bash
    npm install
    npm run build
    ```
-6. Commit and push to `main`.
-7. In cPanel Git Version Control, update and deploy HEAD commit.
+7. Commit and push to `main`.
+8. In cPanel Git Version Control, update and deploy HEAD commit.
 
 ## Local run
 

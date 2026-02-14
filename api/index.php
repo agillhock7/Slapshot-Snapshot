@@ -200,6 +200,41 @@ function require_team_admin_role(PDO $pdo, int $uid, int $teamId): string
     return $role;
 }
 
+function normalize_optional_string(?string $value, int $maxLen): ?string
+{
+    $v = trim((string) $value);
+    if ($v === '') {
+        return null;
+    }
+    if (strlen($v) > $maxLen) {
+        json_response(['ok' => false, 'error' => 'Field is too long.'], 422);
+    }
+    return $v;
+}
+
+function remove_dir_recursive(string $path): void
+{
+    if (!is_dir($path)) {
+        return;
+    }
+    $items = scandir($path);
+    if (!is_array($items)) {
+        return;
+    }
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $target = $path . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($target)) {
+            remove_dir_recursive($target);
+        } else {
+            @unlink($target);
+        }
+    }
+    @rmdir($path);
+}
+
 function list_team_members(PDO $pdo, int $teamId): array
 {
     $stmt = $pdo->prepare(
@@ -224,6 +259,53 @@ function handle_team_members(PDO $pdo): void
     require_team_membership($pdo, $uid, $teamId);
     $members = list_team_members($pdo, $teamId);
     json_response(['ok' => true, 'members' => $members]);
+}
+
+function handle_team_update(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+    $role = require_team_admin_role($pdo, $uid, $teamId);
+
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '' || strlen($name) > 160) {
+        json_response(['ok' => false, 'error' => 'Team name must be 1-160 characters.'], 422);
+    }
+    $ageGroup = normalize_optional_string((string) ($input['age_group'] ?? ''), 60);
+    $seasonYear = normalize_optional_string((string) ($input['season_year'] ?? ''), 30);
+    $level = normalize_optional_string((string) ($input['level'] ?? ''), 80);
+    $homeRink = normalize_optional_string((string) ($input['home_rink'] ?? ''), 160);
+    $city = normalize_optional_string((string) ($input['city'] ?? ''), 120);
+    $teamNotes = normalize_optional_string((string) ($input['team_notes'] ?? ''), 2000);
+
+    $teamStmt = $pdo->prepare('SELECT id, name FROM teams WHERE id = ? LIMIT 1');
+    $teamStmt->execute([$teamId]);
+    $team = $teamStmt->fetch();
+    if (!$team) {
+        json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE teams
+         SET name = ?, age_group = ?, season_year = ?, level = ?, home_rink = ?, city = ?, team_notes = ?
+         WHERE id = ?'
+    );
+    try {
+        $stmt->execute([$name, $ageGroup, $seasonYear, $level, $homeRink, $city, $teamNotes, $teamId]);
+    } catch (Throwable $e) {
+        json_response([
+            'ok' => false,
+            'error' => 'Team metadata columns missing. Run database/migrations/2026-02-14-team-metadata.sql first.'
+        ], 500);
+    }
+
+    $context = get_user_context($pdo, $uid);
+    json_response(['ok' => true, 'teams' => $context['teams']]);
 }
 
 function handle_team_member_role(PDO $pdo): void
@@ -298,6 +380,62 @@ function handle_team_member_remove(PDO $pdo): void
     );
     $updateStmt->execute([$teamId, $memberUserId]);
     json_response(['ok' => true, 'members' => list_team_members($pdo, $teamId)]);
+}
+
+function handle_team_delete(PDO $pdo): void
+{
+    require_method('POST');
+    $uid = require_auth();
+    $input = get_json_input();
+    $teamId = (int) ($input['team_id'] ?? 0);
+    $confirmName = trim((string) ($input['confirm_team_name'] ?? ''));
+    $confirmWord = strtoupper(trim((string) ($input['confirm_word'] ?? '')));
+    if ($teamId <= 0) {
+        json_response(['ok' => false, 'error' => 'team_id required.'], 422);
+    }
+
+    $role = require_team_membership($pdo, $uid, $teamId);
+    if ($role !== 'owner') {
+        json_response(['ok' => false, 'error' => 'Only team owner can delete a team.'], 403);
+    }
+
+    $teamStmt = $pdo->prepare('SELECT id, name FROM teams WHERE id = ? LIMIT 1');
+    $teamStmt->execute([$teamId]);
+    $team = $teamStmt->fetch();
+    if (!$team) {
+        json_response(['ok' => false, 'error' => 'Team not found.'], 404);
+    }
+    if ($confirmWord !== 'DELETE') {
+        json_response(['ok' => false, 'error' => 'Type DELETE to confirm removal.'], 422);
+    }
+    if ($confirmName !== (string) $team['name']) {
+        json_response(['ok' => false, 'error' => 'Team name confirmation does not match.'], 422);
+    }
+
+    $teamUploadPath = UPLOAD_ROOT . '/team-' . $teamId;
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('DELETE FROM teams WHERE id = ?');
+        $stmt->execute([$teamId]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        json_response(['ok' => false, 'error' => 'Unable to delete team.'], 500);
+    }
+
+    $uploadRootReal = realpath(UPLOAD_ROOT) ?: '__none__';
+    $teamPathReal = realpath($teamUploadPath);
+    if ($teamPathReal && str_starts_with_compat($teamPathReal, $uploadRootReal)) {
+        remove_dir_recursive($teamPathReal);
+    } elseif (is_dir($teamUploadPath)) {
+        // Fallback when realpath fails for edge cases.
+        remove_dir_recursive($teamUploadPath);
+    }
+
+    $context = get_user_context($pdo, $uid);
+    json_response(['ok' => true, 'teams' => $context['teams']]);
 }
 
 function handle_media_list(PDO $pdo): void
@@ -625,6 +763,12 @@ switch ($action) {
     case 'team_join':
         handle_join_team($pdo);
         break;
+    case 'team_update':
+        handle_team_update($pdo);
+        break;
+    case 'team_delete':
+        handle_team_delete($pdo);
+        break;
     case 'team_members':
         handle_team_members($pdo);
         break;
@@ -660,6 +804,8 @@ switch ($action) {
                 'auth_logout',
                 'team_create',
                 'team_join',
+                'team_update',
+                'team_delete',
                 'team_members',
                 'team_member_role',
                 'team_member_remove',

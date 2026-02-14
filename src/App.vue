@@ -35,6 +35,19 @@ const registerForm = reactive({
 });
 const createTeamForm = reactive({ name: "" });
 const joinTeamForm = reactive({ join_code: "" });
+const teamProfileForm = reactive({
+  name: "",
+  age_group: "",
+  season_year: "",
+  level: "",
+  home_rink: "",
+  city: "",
+  team_notes: ""
+});
+const deleteTeamForm = reactive({
+  confirm_team_name: "",
+  confirm_word: ""
+});
 const uploadFileForm = reactive({
   title: "",
   description: "",
@@ -60,6 +73,7 @@ const activeTeamRole = computed(() => activeTeam.value?.role || "member");
 const canManageMembers = computed(
   () => activeTeamRole.value === "owner" || activeTeamRole.value === "admin"
 );
+const canDeleteTeam = computed(() => activeTeamRole.value === "owner");
 const photoCount = computed(
   () => mediaItems.value.filter((item) => item.media_type === "photo").length
 );
@@ -130,6 +144,20 @@ function applySession(payload) {
   } else {
     activeTeamId.value = teams.value[0]?.id ? Number(teams.value[0].id) : 0;
   }
+  const team = teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)) || null;
+  syncTeamProfileForm(team);
+}
+
+function syncTeamProfileForm(team) {
+  teamProfileForm.name = team?.name || "";
+  teamProfileForm.age_group = team?.age_group || "";
+  teamProfileForm.season_year = team?.season_year || "";
+  teamProfileForm.level = team?.level || "";
+  teamProfileForm.home_rink = team?.home_rink || "";
+  teamProfileForm.city = team?.city || "";
+  teamProfileForm.team_notes = team?.team_notes || "";
+  deleteTeamForm.confirm_team_name = "";
+  deleteTeamForm.confirm_word = "";
 }
 
 function resetGalleryPagination() {
@@ -424,6 +452,41 @@ async function sendInviteEmail() {
   });
 }
 
+async function updateTeamProfile() {
+  if (!activeTeamId.value) return;
+  await withBusy(async () => {
+    const payload = await apiPost("team_update", {
+      team_id: activeTeamId.value,
+      ...teamProfileForm
+    });
+    teams.value = payload.teams || [];
+    syncTeamProfileForm(teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)));
+    setBanner("success", "Team profile updated.");
+  });
+}
+
+async function deleteActiveTeam() {
+  if (!activeTeamId.value || !activeTeam.value) return;
+  await withBusy(async () => {
+    const payload = await apiPost("team_delete", {
+      team_id: activeTeamId.value,
+      confirm_team_name: deleteTeamForm.confirm_team_name,
+      confirm_word: deleteTeamForm.confirm_word
+    });
+    teams.value = payload.teams || [];
+    activeTeamId.value = teams.value[0]?.id ? Number(teams.value[0].id) : 0;
+    localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value || 0));
+    syncTeamProfileForm(teams.value.find((t) => Number(t.id) === Number(activeTeamId.value)));
+    if (activeTeamId.value) {
+      await Promise.all([loadMedia(), loadTeamMembers()]);
+    } else {
+      mediaItems.value = [];
+      teamMembers.value = [];
+    }
+    setBanner("success", "Team deleted.");
+  });
+}
+
 function canManageMember(member) {
   if (!canManageMembers.value) return false;
   if (Number(member.user_id) === Number(user.value?.id || 0)) return false;
@@ -529,6 +592,10 @@ watch([filteredMedia, activeTab], async () => {
   setupInfiniteScroll();
 });
 
+watch(activeTeam, (team) => {
+  syncTeamProfileForm(team || null);
+});
+
 onMounted(async () => {
   await loadSession();
   await nextTick();
@@ -598,6 +665,12 @@ onBeforeUnmount(() => {
           <p class="eyebrow">Active Team</p>
           <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
           <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
+          <div class="team-meta-strip">
+            <span><strong>Age:</strong> {{ activeTeam?.age_group || "Not set" }}</span>
+            <span><strong>Season:</strong> {{ activeTeam?.season_year || "Not set" }}</span>
+            <span><strong>Level:</strong> {{ activeTeam?.level || "Not set" }}</span>
+            <span><strong>Rink:</strong> {{ activeTeam?.home_rink || "Not set" }}</span>
+          </div>
           <div class="hero-rink-stage">
             <img class="hero-graphic" src="/graphics-rink-hero.svg" alt="Stylized hockey rink illustration" />
             <span class="hero-puck" aria-hidden="true"></span>
@@ -714,6 +787,45 @@ onBeforeUnmount(() => {
           </form>
         </div>
 
+        <form class="panel profile-editor" @submit.prevent="updateTeamProfile">
+          <h4>Edit Team Profile</h4>
+          <div class="profile-grid">
+            <label>
+              <span>Team Name</span>
+              <input v-model="teamProfileForm.name" required />
+            </label>
+            <label>
+              <span>Age Group</span>
+              <input v-model="teamProfileForm.age_group" placeholder="e.g. 12U, 14U, Varsity" />
+            </label>
+            <label>
+              <span>Season Year</span>
+              <input v-model="teamProfileForm.season_year" placeholder="e.g. 2026-2027" />
+            </label>
+            <label>
+              <span>Level</span>
+              <input v-model="teamProfileForm.level" placeholder="e.g. AA, Travel, House" />
+            </label>
+            <label>
+              <span>Home Rink</span>
+              <input v-model="teamProfileForm.home_rink" placeholder="Main arena name" />
+            </label>
+            <label>
+              <span>City</span>
+              <input v-model="teamProfileForm.city" placeholder="City / Region" />
+            </label>
+          </div>
+          <label>
+            <span>Team Notes</span>
+            <textarea
+              v-model="teamProfileForm.team_notes"
+              rows="3"
+              placeholder="Schedule notes, tournament focus, team highlights..."
+            />
+          </label>
+          <button class="btn" :disabled="busy || !activeTeamId">Save Team Profile</button>
+        </form>
+
         <h4>Members</h4>
         <p v-if="membersLoading" class="meta">Loading members...</p>
         <div v-else class="member-list">
@@ -734,6 +846,34 @@ onBeforeUnmount(() => {
             </div>
           </article>
         </div>
+
+        <article class="panel delete-team-card">
+          <h4>Delete Team</h4>
+          <p class="meta">
+            This permanently removes team members and media records. This action cannot be undone.
+          </p>
+          <p v-if="canDeleteTeam" class="meta">
+            Safeguard: type `DELETE` and the exact team name `{{ activeTeam?.name }}`.
+          </p>
+          <p v-else class="meta">Only the team owner can delete a team.</p>
+          <div class="profile-grid">
+            <label>
+              <span>Type DELETE</span>
+              <input v-model="deleteTeamForm.confirm_word" :disabled="!canDeleteTeam" />
+            </label>
+            <label>
+              <span>Type Team Name</span>
+              <input v-model="deleteTeamForm.confirm_team_name" :disabled="!canDeleteTeam" />
+            </label>
+          </div>
+          <button
+            class="btn btn-danger"
+            :disabled="busy || !canDeleteTeam || !activeTeamId"
+            @click="deleteActiveTeam"
+          >
+            Delete Team
+          </button>
+        </article>
       </section>
     </section>
 

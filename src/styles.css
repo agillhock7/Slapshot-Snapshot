@@ -286,6 +286,20 @@ textarea {
   font-size: 1rem;
 }
 
+.team-meta-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.45rem;
+}
+
+.team-meta-strip span {
+  background: #ffffffb8;
+  border: 1px solid #d9e3f4;
+  border-radius: 10px;
+  padding: 0.34rem 0.52rem;
+  font-size: 0.85rem;
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(110px, 1fr));
@@ -513,6 +527,27 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 0.8rem;
+}
+
+.profile-editor {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid var(--line);
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.6rem;
+}
+
+.delete-team-card {
+  padding: 0.9rem;
+  border: 1px solid #f1beb5;
+  background: linear-gradient(155deg, #fff7f5, #fff);
+  display: grid;
+  gap: 0.65rem;
 }
 
 .member-list {

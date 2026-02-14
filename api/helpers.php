@@ -123,16 +123,33 @@ function get_user_context(PDO $pdo, int $uid): array
         json_response(['ok' => false, 'error' => 'User not found.'], 404);
     }
 
-    $teamsStmt = $pdo->prepare(
-        'SELECT t.id, t.name, t.slug, t.join_code, tm.role,
-                (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.status = "active") AS member_count
-         FROM team_members tm
-         INNER JOIN teams t ON t.id = tm.team_id
-         WHERE tm.user_id = ? AND tm.status = "active"
-         ORDER BY t.name'
-    );
-    $teamsStmt->execute([$uid]);
-    $teams = $teamsStmt->fetchAll();
+    try {
+        $teamsStmt = $pdo->prepare(
+            'SELECT t.id, t.name, t.age_group, t.season_year, t.level, t.home_rink, t.city, t.team_notes,
+                    t.slug, t.join_code, tm.role,
+                    (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.status = "active") AS member_count
+             FROM team_members tm
+             INNER JOIN teams t ON t.id = tm.team_id
+             WHERE tm.user_id = ? AND tm.status = "active"
+             ORDER BY t.name'
+        );
+        $teamsStmt->execute([$uid]);
+        $teams = $teamsStmt->fetchAll();
+    } catch (Throwable $e) {
+        // Backward-compatible fallback when team metadata columns are not migrated yet.
+        $teamsStmt = $pdo->prepare(
+            'SELECT t.id, t.name,
+                    NULL AS age_group, NULL AS season_year, NULL AS level, NULL AS home_rink, NULL AS city, NULL AS team_notes,
+                    t.slug, t.join_code, tm.role,
+                    (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.status = "active") AS member_count
+             FROM team_members tm
+             INNER JOIN teams t ON t.id = tm.team_id
+             WHERE tm.user_id = ? AND tm.status = "active"
+             ORDER BY t.name'
+        );
+        $teamsStmt->execute([$uid]);
+        $teams = $teamsStmt->fetchAll();
+    }
 
     return [
         'user' => $user,
