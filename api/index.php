@@ -153,6 +153,23 @@ function send_multipart_email(string $to, string $subject, string $plainText, st
     return @mail($to, $subject, $body, implode("\r\n", $headers));
 }
 
+function send_plain_email(string $to, string $subject, string $plainText, string $replyTo = ''): bool
+{
+    $host = preg_replace('/[^A-Za-z0-9\.\-]/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        $host = (string) (parse_url(APP_PUBLIC_URL, PHP_URL_HOST) ?: 'snap.pucc.us');
+    }
+    $fromAddress = 'noreply@' . $host;
+    $reply = trim($replyTo) !== '' ? trim($replyTo) : $fromAddress;
+    $headers = [
+        'From: ' . APP_BRAND_NAME . ' <' . $fromAddress . '>',
+        'Reply-To: ' . $reply,
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+    ];
+    return @mail($to, $subject, $plainText, implode("\r\n", $headers));
+}
+
 function request_ip_address(): string
 {
     $forwarded = trim((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
@@ -1407,9 +1424,16 @@ function handle_invite_email(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'Please wait a few seconds before sending another invite.'], 429);
     }
 
-    $teamStmt = $pdo->prepare('SELECT name, join_code, logo_path FROM teams WHERE id = ? LIMIT 1');
-    $teamStmt->execute([$teamId]);
-    $team = $teamStmt->fetch();
+    try {
+        $teamStmt = $pdo->prepare('SELECT name, join_code, logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+    } catch (Throwable $e) {
+        // Backward-compatible fallback when logo_path migration has not been applied yet.
+        $teamStmt = $pdo->prepare('SELECT name, join_code, NULL AS logo_path FROM teams WHERE id = ? LIMIT 1');
+        $teamStmt->execute([$teamId]);
+        $team = $teamStmt->fetch();
+    }
     if (!$team) {
         json_response(['ok' => false, 'error' => 'Team not found.'], 404);
     }
@@ -1463,6 +1487,11 @@ function handle_invite_email(PDO $pdo): void
 
     $ok = send_multipart_email($email, $subject, $plainText, $html);
     if (!$ok) {
+        error_log('invite_email multipart send failed for team_id=' . $teamId . ' email=' . $email);
+        $ok = send_plain_email($email, $subject, $plainText);
+    }
+    if (!$ok) {
+        error_log('invite_email plain-text fallback send failed for team_id=' . $teamId . ' email=' . $email);
         json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
     }
 
