@@ -978,6 +978,70 @@ textarea:focus {
   box-shadow: 5px 5px 12px rgba(114, 140, 176, 0.14), -4px -4px 10px rgba(255, 255, 255, 0.84);
 }
 
+.invite-status-panel {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid rgba(193, 211, 236, 0.84);
+  box-shadow: 6px 6px 14px rgba(114, 139, 175, 0.14), -4px -4px 10px rgba(255, 255, 255, 0.86);
+}
+
+.invite-status-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.invite-status-card {
+  border: 1px solid rgba(192, 210, 236, 0.84);
+  border-radius: 12px;
+  padding: 0.72rem;
+  background: linear-gradient(150deg, #f8fbff, #ffffff);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+  box-shadow: 4px 4px 10px rgba(113, 139, 176, 0.14), -3px -3px 8px rgba(255, 255, 255, 0.82);
+}
+
+.invite-status-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.2rem;
+}
+
+.invite-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.62rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+  border: 1px solid #d5e0f5;
+  background: #eef4ff;
+  color: #2a3a57;
+}
+
+.invite-status-pill.is-pending {
+  background: #fff4e6;
+  border-color: #ffcea0;
+  color: #7f451a;
+}
+
+.invite-status-pill.is-accepted {
+  background: #e8fff1;
+  border-color: #b7ebcd;
+  color: #1e6a3f;
+}
+
+.invite-status-pill.is-revoked {
+  background: #ffecee;
+  border-color: #efc2c8;
+  color: #7f2b36;
+}
+
 .member-controls {
   display: flex;
   gap: 0.4rem;
@@ -1273,6 +1337,15 @@ textarea:focus {
   .member-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .invite-status-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .invite-status-side {
+    justify-items: start;
   }
 
   .team-logo-badge {

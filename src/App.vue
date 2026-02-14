@@ -28,6 +28,8 @@ const dragActive = ref(false);
 const pendingJoinCode = ref("");
 const uploadQueue = ref([]);
 const teamMembers = ref([]);
+const teamInvites = ref([]);
+const inviteTrackingEnabled = ref(true);
 const membersLoading = ref(false);
 const visibleCount = ref(PAGE_SIZE);
 const loadMoreSentinel = ref(null);
@@ -194,6 +196,20 @@ function displayDate(date) {
   return new Date(`${date}T00:00:00`).toLocaleDateString();
 }
 
+function displayDateTime(value) {
+  if (!value) return "—";
+  const normalized = String(value).replace(" ", "T");
+  const dt = new Date(normalized);
+  if (Number.isNaN(dt.getTime())) return String(value);
+  return dt.toLocaleString();
+}
+
+function inviteStatusLabel(status) {
+  if (status === "accepted") return "Joined";
+  if (status === "revoked") return "Revoked";
+  return "Pending";
+}
+
 function cardImageSrc(item) {
   return item.thumbnail_url || item.file_path || "/video-placeholder.svg";
 }
@@ -353,6 +369,9 @@ async function loadSession() {
       user.value = null;
       teams.value = [];
       activeTeamId.value = 0;
+      teamMembers.value = [];
+      teamInvites.value = [];
+      inviteTrackingEnabled.value = true;
       if (pendingJoinCode.value) {
         joinTeamForm.join_code = pendingJoinCode.value;
         setBanner("success", "Invite code detected. Sign in, then tap Join Team.");
@@ -411,7 +430,11 @@ async function loadTeamMembers() {
   try {
     const payload = await apiGet("team_members", { team_id: activeTeamId.value });
     teamMembers.value = payload.members || [];
+    teamInvites.value = payload.invites || [];
+    inviteTrackingEnabled.value = payload.invite_tracking_enabled !== false;
   } catch (err) {
+    teamInvites.value = [];
+    inviteTrackingEnabled.value = true;
     setBanner("error", err.message || "Unable to load team members.");
   } finally {
     membersLoading.value = false;
@@ -471,6 +494,8 @@ async function logout() {
     mediaStats.photos = 0;
     mediaStats.videos = 0;
     teamMembers.value = [];
+    teamInvites.value = [];
+    inviteTrackingEnabled.value = true;
     syncAccountProfileForm(null);
     emailChangeForm.requested_email = "";
     emailChangeForm.reason = "";
@@ -643,6 +668,9 @@ async function sendInviteEmail() {
     });
     emailInviteForm.email = "";
     emailInviteForm.message = "";
+    if (canDeleteTeam.value) {
+      await loadTeamMembers();
+    }
     setBanner("success", "Invite email sent.");
   });
 }
@@ -736,6 +764,7 @@ async function deleteActiveTeam() {
       mediaStats.photos = 0;
       mediaStats.videos = 0;
       teamMembers.value = [];
+      teamInvites.value = [];
     }
     setBanner("success", "Team deleted.");
   });
@@ -1364,6 +1393,34 @@ onBeforeUnmount(() => {
             </div>
           </article>
         </div>
+
+        <article v-if="canDeleteTeam" class="panel invite-status-panel">
+          <h4>Invite Status</h4>
+          <p class="meta">Track invite emails and see when someone joins the team.</p>
+          <p v-if="!inviteTrackingEnabled" class="meta">
+            Invite status tracking is unavailable until the `team_invites` migration is applied.
+          </p>
+          <p v-else-if="membersLoading" class="meta">Loading invite status...</p>
+          <p v-else-if="teamInvites.length === 0" class="meta">No invite emails sent yet.</p>
+          <div v-else class="invite-status-list">
+            <article v-for="invite in teamInvites" :key="invite.id" class="invite-status-card">
+              <div>
+                <strong>{{ invite.email }}</strong>
+                <p class="meta">
+                  Sent {{ invite.send_count }} time{{ invite.send_count === 1 ? "" : "s" }} ·
+                  Last sent {{ displayDateTime(invite.last_sent_at) }}
+                </p>
+                <p class="meta">Invited by {{ invite.invited_by_name || "Team owner" }}</p>
+                <p v-if="invite.message_preview" class="meta">Note: {{ invite.message_preview }}</p>
+              </div>
+              <div class="invite-status-side">
+                <span :class="['invite-status-pill', `is-${invite.status}`]">{{ inviteStatusLabel(invite.status) }}</span>
+                <p v-if="invite.accepted_at" class="meta">Joined {{ displayDateTime(invite.accepted_at) }}</p>
+                <p v-if="invite.accepted_user_name" class="meta">{{ invite.accepted_user_name }}</p>
+              </div>
+            </article>
+          </div>
+        </article>
 
         <article class="panel delete-team-card">
           <h4>Delete Team</h4>

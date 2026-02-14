@@ -10,6 +10,7 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 - Direct invite links (`?join=CODE`) with auto-join flow
 - One-click invite actions (copy/share/text/email) plus server-sent email invites
 - Team member management (owner/admin/member roles)
+- Owner invite-status tracking (pending/joined) inside Team Members
 - Account management (display name + password update)
 - Support-reviewed email change requests with approve/deny workflow
 - Team branding with owner/admin logo upload + removal
@@ -34,6 +35,7 @@ Slapshot Snapshot is a multi-team media sharing app for hockey families, built f
 3. If upgrading an existing install, run:
    - `database/migrations/2026-02-14-team-metadata.sql`
    - `database/migrations/2026-02-14-team-logo.sql`
+   - `database/migrations/2026-02-14-team-invites.sql`
    - `database/migrations/2026-02-14-email-change-requests.sql`
 4. Copy `api/config.local.example.php` to `api/config.local.php`.
 5. Fill DB credentials in `api/config.local.php`.

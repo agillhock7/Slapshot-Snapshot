@@ -185,6 +185,37 @@ function default_brand_logo_url(): string
     return absolute_public_url('/brand-mark.svg');
 }
 
+function email_shell_html(
+    string $eyebrow,
+    string $title,
+    string $contentHtml,
+    string $accentStart = '#15355f',
+    string $accentEnd = '#2f6ea9',
+    string $logoUrl = ''
+): string {
+    $brandEsc = htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8');
+    $eyebrowEsc = htmlspecialchars($eyebrow, ENT_QUOTES, 'UTF-8');
+    $titleEsc = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+    $logo = trim($logoUrl) !== '' ? trim($logoUrl) : default_brand_logo_url();
+    $logoEsc = htmlspecialchars($logo, ENT_QUOTES, 'UTF-8');
+    $accentStartEsc = htmlspecialchars($accentStart, ENT_QUOTES, 'UTF-8');
+    $accentEndEsc = htmlspecialchars($accentEnd, ENT_QUOTES, 'UTF-8');
+
+    return '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#1b2940;">
+<div style="max-width:700px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:16px;overflow:hidden;">
+<div style="padding:18px 20px;background:linear-gradient(135deg,' . $accentStartEsc . ',' . $accentEndEsc . ');color:#fff;">
+<table role="presentation" style="border-collapse:collapse;"><tr>
+<td style="padding-right:12px;vertical-align:middle;"><img src="' . $logoEsc . '" alt="' . $brandEsc . '" style="height:42px;width:42px;border-radius:10px;display:block;"></td>
+<td style="vertical-align:middle;">
+<p style="margin:0;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">' . $brandEsc . '</p>
+<h2 style="margin:2px 0 0;font-size:22px;color:#fff;">' . $titleEsc . '</h2>
+<p style="margin:4px 0 0;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;opacity:0.82;">' . $eyebrowEsc . '</p>
+</td></tr></table>
+</div>
+<div style="padding:20px;">' . $contentHtml . '</div>
+</div></body></html>';
+}
+
 function team_logo_extension_for_mime(string $mimeType): ?string
 {
     switch ($mimeType) {
@@ -350,12 +381,6 @@ function handle_account_email_change_request(PDO $pdo): void
             : '<em>No reason provided.</em>';
         $approveEsc = htmlspecialchars($approveUrl, ENT_QUOTES, 'UTF-8');
         $denyEsc = htmlspecialchars($denyUrl, ENT_QUOTES, 'UTF-8');
-        $brandEsc = htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8');
-        $brandLogoUrl = default_brand_logo_url();
-        $brandLogoHtml = '';
-        if ($brandLogoUrl !== '') {
-            $brandLogoHtml = '<img src="' . htmlspecialchars($brandLogoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . $brandEsc . '" style="height:40px;width:40px;border-radius:10px;display:block;">';
-        }
         $subject = sprintf('Email change approval required (%s #%d)', APP_BRAND_NAME, $requestId);
         $plainText = implode("\r\n", [
             APP_BRAND_NAME . ' email change request requires review.',
@@ -376,13 +401,7 @@ function handle_account_email_change_request(PDO $pdo): void
             'Approve: ' . $approveUrl,
             'Deny: ' . $denyUrl,
         ]);
-        $htmlBody = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#1b2940;">
-<div style="max-width:700px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:16px;overflow:hidden;">
-<div style="padding:18px 20px;background:linear-gradient(135deg,#15355f,#2f6ea9);color:#fff;">
-<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:12px;vertical-align:middle;">' . $brandLogoHtml . '</td><td style="vertical-align:middle;"><p style="margin:0;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">' . $brandEsc . '</p><h2 style="margin:2px 0 0;font-size:22px;color:#fff;">Email Change Review</h2></td></tr></table>
-</div>
-<div style="padding:20px;">
-<p style="margin:0 0 14px;">A user requested a login email change on <strong>' . $brandEsc . '</strong>.</p>
+        $bodyContentHtml = '<p style="margin:0 0 14px;">A user requested a login email change and needs a decision.</p>
 <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
 <tr><td style="padding:6px 0;color:#4f5e78;">Request ID</td><td style="padding:6px 0;"><strong>#' . $requestId . '</strong></td></tr>
 <tr><td style="padding:6px 0;color:#4f5e78;">User ID</td><td style="padding:6px 0;"><strong>' . $uid . '</strong></td></tr>
@@ -399,8 +418,14 @@ function handle_account_email_change_request(PDO $pdo): void
 </div>
 <p style="margin:0 0 10px;"><a href="' . $approveEsc . '" style="display:inline-block;background:#1f8a4d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Approve Email Change</a></p>
 <p style="margin:0 0 16px;"><a href="' . $denyEsc . '" style="display:inline-block;background:#b22d2d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Deny Request</a></p>
-<p style="margin:0;color:#67758f;font-size:12px;">Each link is single-use and expires automatically.</p>
-</div></div></body></html>';
+<p style="margin:0;color:#67758f;font-size:12px;">Each link is single-use and expires automatically.</p>';
+        $htmlBody = email_shell_html(
+            'Support Action',
+            'Email Change Review',
+            $bodyContentHtml,
+            '#15355f',
+            '#2f6ea9'
+        );
 
         $sent = send_multipart_email(SUPPORT_EMAIL, $subject, $plainText, $htmlBody, SUPPORT_EMAIL);
         if (!$sent) {
@@ -476,12 +501,6 @@ function handle_account_email_request_decision(PDO $pdo): void
     $notifyPlain = '';
     $notifyHtml = '';
     $notifyTo = [];
-    $brandEsc = htmlspecialchars(APP_BRAND_NAME, ENT_QUOTES, 'UTF-8');
-    $brandLogoUrl = default_brand_logo_url();
-    $brandLogoHtml = '';
-    if ($brandLogoUrl !== '') {
-        $brandLogoHtml = '<img src="' . htmlspecialchars($brandLogoUrl, ENT_QUOTES, 'UTF-8') . '" alt="' . $brandEsc . '" style="height:36px;width:36px;border-radius:9px;display:block;">';
-    }
 
     $pdo->beginTransaction();
     try {
@@ -539,15 +558,15 @@ function handle_account_email_request_decision(PDO $pdo): void
                 'New email: ' . $requestedEmail,
                 'Request ID: #' . $requestId,
             ]);
-            $notifyHtml = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#17253d;">
-<div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;overflow:hidden;">
-<div style="padding:16px 18px;background:linear-gradient(135deg,#15355f,#2f6ea9);color:#fff;">
-<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:10px;">' . $brandLogoHtml . '</td><td><p style="margin:0;font-size:12px;opacity:0.9;letter-spacing:0.06em;text-transform:uppercase;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Email Change Approved</strong></td></tr></table>
-</div>
-<div style="padding:18px;">
-<p style="margin:0 0 12px;">Your email change request was approved.</p>
-<p style="margin:0;"><strong>Old email:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>New email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
-</div></div></body></html>';
+            $notifyBody = '<p style="margin:0 0 12px;">Your email change request was approved.</p>
+<p style="margin:0;"><strong>Old email:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>New email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>';
+            $notifyHtml = email_shell_html(
+                'Account Update',
+                'Email Change Approved',
+                $notifyBody,
+                '#15355f',
+                '#2f6ea9'
+            );
             $notifyTo = [$requestedEmail, $currentEmail];
         } else {
             $denyStmt = $pdo->prepare(
@@ -563,15 +582,15 @@ function handle_account_email_request_decision(PDO $pdo): void
                 'Requested email: ' . $requestedEmail,
                 'Request ID: #' . $requestId,
             ]);
-            $notifyHtml = '<!doctype html><html><body style="margin:0;background:#eef3ff;font-family:Arial,sans-serif;color:#17253d;">
-<div style="max-width:620px;margin:24px auto;background:#fff;border:1px solid #dce5fb;border-radius:14px;overflow:hidden;">
-<div style="padding:16px 18px;background:linear-gradient(135deg,#5b1321,#9d2f4c);color:#fff;">
-<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:10px;">' . $brandLogoHtml . '</td><td><p style="margin:0;font-size:12px;opacity:0.9;letter-spacing:0.06em;text-transform:uppercase;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Email Change Denied</strong></td></tr></table>
-</div>
-<div style="padding:18px;">
-<p style="margin:0 0 12px;">Your email change request was denied.</p>
-<p style="margin:0;"><strong>Current email remains:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Requested email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>
-</div></div></body></html>';
+            $notifyBody = '<p style="margin:0 0 12px;">Your email change request was denied.</p>
+<p style="margin:0;"><strong>Current email remains:</strong> ' . htmlspecialchars($currentEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Requested email:</strong> ' . htmlspecialchars($requestedEmail, ENT_QUOTES, 'UTF-8') . '<br><strong>Request ID:</strong> #' . $requestId . '</p>';
+            $notifyHtml = email_shell_html(
+                'Account Update',
+                'Email Change Denied',
+                $notifyBody,
+                '#5b1321',
+                '#9d2f4c'
+            );
             $notifyTo = [$currentEmail];
         }
 
@@ -702,6 +721,49 @@ function remove_dir_recursive(string $path): void
     @rmdir($path);
 }
 
+function list_team_invites(PDO $pdo, int $teamId): array
+{
+    // Keep statuses accurate when an invited email has now joined the team.
+    $syncStmt = $pdo->prepare(
+        'UPDATE team_invites ti
+         INNER JOIN users u ON u.email = ti.email
+         INNER JOIN team_members tm ON tm.team_id = ti.team_id AND tm.user_id = u.id AND tm.status = "active"
+         SET ti.status = "accepted", ti.accepted_at = COALESCE(ti.accepted_at, tm.created_at)
+         WHERE ti.team_id = ? AND ti.status <> "accepted"'
+    );
+    $syncStmt->execute([$teamId]);
+
+    $stmt = $pdo->prepare(
+        'SELECT
+            ti.id,
+            ti.email,
+            CASE WHEN tm.id IS NOT NULL THEN "accepted" ELSE ti.status END AS status,
+            ti.message_preview,
+            ti.send_count,
+            ti.created_at,
+            ti.last_sent_at,
+            COALESCE(ti.accepted_at, tm.created_at) AS accepted_at,
+            inviter.display_name AS invited_by_name,
+            accepted_user.id AS accepted_user_id,
+            accepted_user.display_name AS accepted_user_name
+         FROM team_invites ti
+         LEFT JOIN users inviter ON inviter.id = ti.invited_by_user_id
+         LEFT JOIN users accepted_user ON accepted_user.email = ti.email
+         LEFT JOIN team_members tm ON tm.team_id = ti.team_id AND tm.user_id = accepted_user.id AND tm.status = "active"
+         WHERE ti.team_id = ?
+         ORDER BY
+            CASE
+                WHEN tm.id IS NOT NULL THEN 2
+                WHEN ti.status = "pending" THEN 1
+                ELSE 3
+            END ASC,
+            ti.last_sent_at DESC,
+            ti.id DESC'
+    );
+    $stmt->execute([$teamId]);
+    return $stmt->fetchAll();
+}
+
 function list_team_members(PDO $pdo, int $teamId): array
 {
     $stmt = $pdo->prepare(
@@ -723,9 +785,23 @@ function handle_team_members(PDO $pdo): void
     if ($teamId <= 0) {
         json_response(['ok' => false, 'error' => 'team_id required.'], 422);
     }
-    require_team_membership($pdo, $uid, $teamId);
+    $role = require_team_membership($pdo, $uid, $teamId);
     $members = list_team_members($pdo, $teamId);
-    json_response(['ok' => true, 'members' => $members]);
+    $invites = [];
+    $inviteTrackingEnabled = true;
+    if ($role === 'owner') {
+        try {
+            $invites = list_team_invites($pdo, $teamId);
+        } catch (Throwable $e) {
+            $inviteTrackingEnabled = false;
+        }
+    }
+    json_response([
+        'ok' => true,
+        'members' => $members,
+        'invites' => $invites,
+        'invite_tracking_enabled' => $inviteTrackingEnabled
+    ]);
 }
 
 function handle_team_update(PDO $pdo): void
@@ -1363,39 +1439,57 @@ function handle_invite_email(PDO $pdo): void
 
     $senderEsc = htmlspecialchars($senderName, ENT_QUOTES, 'UTF-8');
     $teamEsc = htmlspecialchars((string) $team['name'], ENT_QUOTES, 'UTF-8');
-    $brandEsc = htmlspecialchars($brandName, ENT_QUOTES, 'UTF-8');
     $codeEsc = htmlspecialchars((string) $team['join_code'], ENT_QUOTES, 'UTF-8');
     $linkEsc = htmlspecialchars($inviteUrl, ENT_QUOTES, 'UTF-8');
     $messageEsc = nl2br(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
-    $logoEsc = htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8');
-    $logoHtml = '<img src="' . $logoEsc . '" alt="' . $teamEsc . ' logo" style="height:44px;width:44px;border-radius:10px;display:block;">';
     $personalNoteHtml = $message !== ''
         ? '<p style="margin:16px 0 6px;color:#334;">Personal note:</p><div style="background:#f7f8fc;border-radius:10px;padding:10px 12px;color:#25324a;">' . $messageEsc . '</div>'
         : '';
-    $html = '<!doctype html><html><body style="margin:0;background:#f2f5ff;font-family:Arial,sans-serif;color:#17253d;">
-<div style="max-width:640px;margin:28px auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #dde5ff;">
-<div style="padding:16px 20px;background:linear-gradient(135deg,#133056,#1f5e94);color:#fff;">
-<table role="presentation" style="border-collapse:collapse;"><tr><td style="padding-right:12px;">' . $logoHtml . '</td><td><p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.9;">' . $brandEsc . '</p><strong style="display:block;margin-top:2px;">Team Invite</strong></td></tr></table>
-</div>
-<div style="padding:24px;">
+    $inviteBodyHtml = '
 <h2 style="margin:0 0 12px;color:#0f2f59;">You are invited to join ' . $teamEsc . '</h2>
-<p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . $brandEsc . '.</p>
+<p style="margin:0 0 10px;color:#2e3c56;">' . $senderEsc . ' invited you to join on ' . htmlspecialchars($brandName, ENT_QUOTES, 'UTF-8') . '.</p>
 <p style="margin:0 0 6px;color:#2e3c56;"><strong>Join code:</strong> ' . $codeEsc . '</p>
 <p style="margin:0 0 18px;"><a href="' . $linkEsc . '" style="display:inline-block;background:#ff5a2a;color:#fff;text-decoration:none;padding:10px 14px;border-radius:9px;font-weight:700;">Open Invite Link</a></p>
 ' . $personalNoteHtml . '
-<p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>
-</div></div></body></html>';
+<p style="margin:18px 0 0;color:#54607a;">See you at the rink.</p>';
+    $html = email_shell_html(
+        'Team Invite',
+        'Join ' . (string) $team['name'],
+        $inviteBodyHtml,
+        '#133056',
+        '#1f5e94',
+        $logoUrl
+    );
 
     $ok = send_multipart_email($email, $subject, $plainText, $html);
     if (!$ok) {
         json_response(['ok' => false, 'error' => 'Email send failed. Verify your server mail configuration.'], 500);
     }
 
+    $messagePreview = $message !== '' ? substr($message, 0, 255) : null;
+    $inviteTrackingEnabled = true;
+    try {
+        $inviteStmt = $pdo->prepare(
+            'INSERT INTO team_invites
+             (team_id, invited_by_user_id, email, message_preview, status, send_count, created_at, last_sent_at)
+             VALUES (?, ?, ?, ?, "pending", 1, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+             ON DUPLICATE KEY UPDATE
+                invited_by_user_id = VALUES(invited_by_user_id),
+                message_preview = VALUES(message_preview),
+                send_count = send_count + 1,
+                last_sent_at = UTC_TIMESTAMP(),
+                status = IF(status = "accepted", "accepted", "pending")'
+        );
+        $inviteStmt->execute([$teamId, $uid, $email, $messagePreview]);
+    } catch (Throwable $e) {
+        $inviteTrackingEnabled = false;
+    }
+
     $_SESSION['invite_email_last_sent'] = $now;
     $window['count'] = (int) ($window['count'] ?? 0) + 1;
     $_SESSION['invite_email_window'] = $window;
 
-    json_response(['ok' => true]);
+    json_response(['ok' => true, 'invite_tracking_enabled' => $inviteTrackingEnabled]);
 }
 
 $pdo = db();
