@@ -575,10 +575,22 @@ onBeforeUnmount(() => {
 
     <section v-else class="dashboard">
       <nav class="app-nav panel">
-        <button :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">Overview</button>
-        <button :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">Upload</button>
-        <button :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">Gallery</button>
-        <button :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">Teams</button>
+        <button :class="{ active: activeTab === 'overview' }" @click="activeTab = 'overview'">
+          <img class="nav-icon" src="/icon-nav-overview.svg" alt="" />
+          <span>Overview</span>
+        </button>
+        <button :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">
+          <img class="nav-icon" src="/icon-nav-upload.svg" alt="" />
+          <span>Upload</span>
+        </button>
+        <button :class="{ active: activeTab === 'gallery' }" @click="activeTab = 'gallery'">
+          <img class="nav-icon" src="/icon-nav-gallery.svg" alt="" />
+          <span>Gallery</span>
+        </button>
+        <button :class="{ active: activeTab === 'teams' }" @click="activeTab = 'teams'">
+          <img class="nav-icon" src="/icon-nav-teams.svg" alt="" />
+          <span>Teams</span>
+        </button>
       </nav>
 
       <section v-if="activeTab === 'overview'" class="grid-overview">
@@ -586,7 +598,10 @@ onBeforeUnmount(() => {
           <p class="eyebrow">Active Team</p>
           <h2>{{ activeTeam?.name || "No Team Selected" }}</h2>
           <p class="hero-copy">Private season timeline, invite-only access, and instant sharing across family and friends.</p>
-          <img class="hero-graphic" src="/graphics-rink-hero.svg" alt="Stylized hockey rink illustration" />
+          <div class="hero-rink-stage">
+            <img class="hero-graphic" src="/graphics-rink-hero.svg" alt="Stylized hockey rink illustration" />
+            <span class="hero-puck" aria-hidden="true"></span>
+          </div>
           <div class="stats">
             <article><p>Total</p><strong>{{ mediaItems.length }}</strong></article>
             <article><p>Photos</p><strong>{{ photoCount }}</strong></article>

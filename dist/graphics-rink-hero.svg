@@ -18,14 +18,9 @@
   <circle cx="940" cy="480" r="84" stroke="#e54646" stroke-opacity=".5" stroke-width="10"/>
   <rect x="108" y="285" width="130" height="130" rx="18" stroke="#f5f9ff" stroke-width="8"/>
   <rect x="962" y="285" width="130" height="130" rx="18" stroke="#f5f9ff" stroke-width="8"/>
-  <path d="M460 575C502 525 540 505 599 505C658 505 702 528 741 575" stroke="#2e6fa7" stroke-opacity=".55" stroke-width="9" stroke-linecap="round"/>
   <g transform="translate(905 65)">
     <rect width="235" height="105" rx="22" fill="#0f2f54" opacity=".88"/>
     <text x="22" y="43" fill="#dff2ff" font-family="Arial, sans-serif" font-size="24" font-weight="700">SLAPSHOT</text>
     <text x="22" y="77" fill="#9bd9ff" font-family="Arial, sans-serif" font-size="22">SNAPSHOT</text>
-  </g>
-  <g transform="translate(80 540)">
-    <rect width="310" height="70" rx="35" fill="url(#bar)"/>
-    <text x="28" y="44" fill="#ffffff" font-family="Arial, sans-serif" font-size="26" font-weight="700">Family Hockey Hub</text>
   </g>
 </svg>
