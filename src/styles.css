@@ -539,6 +539,31 @@ textarea:focus {
   gap: 0.85rem;
 }
 
+.upload-destination-card {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid rgba(186, 208, 235, 0.86);
+  box-shadow: 6px 6px 14px rgba(114, 139, 176, 0.14), -4px -4px 10px rgba(255, 255, 255, 0.86);
+  grid-column: 1 / -1;
+}
+
+.upload-destination-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.upload-destination-logo {
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  border: 1px solid #c4d7ef;
+  object-fit: cover;
+  background: #eff6ff;
+  box-shadow: 0 6px 14px rgba(18, 36, 66, 0.14);
+}
+
 .stack {
   padding: 1rem;
 }
@@ -999,6 +1024,25 @@ textarea:focus {
   gap: 0.6rem;
 }
 
+.members-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.member-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(150px, 210px) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.member-filter-bar .btn {
+  white-space: nowrap;
+}
+
 .member-card {
   border: 1px solid rgba(191, 208, 233, 0.82);
   border-radius: 12px;
@@ -1404,6 +1448,10 @@ textarea:focus {
   }
 
   .account-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .member-filter-bar {
     grid-template-columns: 1fr;
   }
 

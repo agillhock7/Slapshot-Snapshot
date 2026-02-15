@@ -31,6 +31,8 @@ const teamMembers = ref([]);
 const teamInvites = ref([]);
 const inviteTrackingEnabled = ref(true);
 const membersLoading = ref(false);
+const memberSearchQuery = ref("");
+const memberRoleFilter = ref("all");
 const visibleCount = ref(PAGE_SIZE);
 const loadMoreSentinel = ref(null);
 const mediaOffset = ref(0);
@@ -47,7 +49,15 @@ const registerForm = reactive({
   password: "",
   team_name: ""
 });
-const createTeamForm = reactive({ name: "" });
+const createTeamForm = reactive({
+  name: "",
+  age_group: "",
+  season_year: "",
+  level: "",
+  home_rink: "",
+  city: "",
+  team_notes: ""
+});
 const joinTeamForm = reactive({ join_code: "" });
 const teamProfileForm = reactive({
   name: "",
@@ -89,6 +99,8 @@ const emailChangeForm = reactive({
   reason: ""
 });
 const teamLogoInput = ref(null);
+const createTeamLogoInput = ref(null);
+const createTeamLogoFile = ref(null);
 
 const isAuthenticated = computed(() => !!user.value);
 const activeTeam = computed(() =>
@@ -176,6 +188,16 @@ const modalStrip = computed(() => {
   const end = Math.min(sortedMedia.value.length, idx + 5);
   return sortedMedia.value.slice(start, end);
 });
+const filteredTeamMembers = computed(() => {
+  const query = memberSearchQuery.value.toLowerCase().trim();
+  const roleFilter = memberRoleFilter.value;
+  return teamMembers.value.filter((member) => {
+    if (roleFilter !== "all" && member.role !== roleFilter) return false;
+    if (!query) return true;
+    const text = `${member.display_name || ""} ${member.email || ""} ${member.role || ""}`.toLowerCase();
+    return text.includes(query);
+  });
+});
 const totalUploadProgress = computed(() => {
   if (!uploadQueue.value.length) return 0;
   const sum = uploadQueue.value.reduce((acc, item) => acc + item.progress, 0);
@@ -206,9 +228,14 @@ function displayDateTime(value) {
 }
 
 function inviteStatusLabel(status) {
-  if (status === "accepted") return "Joined";
+  if (status === "accepted") return "Active";
   if (status === "revoked") return "Revoked";
   return "Pending";
+}
+
+function clearMemberFilters() {
+  memberSearchQuery.value = "";
+  memberRoleFilter.value = "all";
 }
 
 function canManageInvite(invite) {
@@ -514,13 +541,34 @@ async function createTeam() {
   await withBusy(async () => {
     const payload = await apiPost("team_create", createTeamForm);
     teams.value = payload.teams || [];
+    const createdTeamId = payload.created_team_id ? Number(payload.created_team_id) : 0;
+    let logoUploadNotice = "";
+    if (createdTeamId && createTeamLogoFile.value) {
+      const formData = new FormData();
+      formData.append("team_id", String(createdTeamId));
+      formData.append("logo", createTeamLogoFile.value);
+      try {
+        const logoPayload = await apiUpload("team_logo_upload", formData);
+        teams.value = logoPayload.teams || teams.value;
+      } catch {
+        logoUploadNotice = " Team created, but logo upload failed. Add it in Team Branding below.";
+      }
+    }
     createTeamForm.name = "";
-    if (payload.created_team_id) {
-      activeTeamId.value = Number(payload.created_team_id);
+    createTeamForm.age_group = "";
+    createTeamForm.season_year = "";
+    createTeamForm.level = "";
+    createTeamForm.home_rink = "";
+    createTeamForm.city = "";
+    createTeamForm.team_notes = "";
+    createTeamLogoFile.value = null;
+    if (createTeamLogoInput.value) createTeamLogoInput.value.value = "";
+    if (createdTeamId) {
+      activeTeamId.value = createdTeamId;
       localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value));
       await Promise.all([loadMedia(), loadTeamMembers()]);
     }
-    setBanner("success", "New team created.");
+    setBanner("success", `New team created.${logoUploadNotice}`);
   });
 }
 
@@ -547,6 +595,7 @@ async function joinTeam(silent = false) {
 
 async function switchTeam() {
   clearBanner();
+  clearMemberFilters();
   localStorage.setItem("slapshot_active_team_id", String(activeTeamId.value));
   await withBusy(async () => {
     await Promise.all([loadMedia(), loadTeamMembers()]);
@@ -566,6 +615,10 @@ function setSelectedFiles(fileList) {
 
 function onFileInput(event) {
   setSelectedFiles(event.target.files);
+}
+
+function onCreateTeamLogoSelected(event) {
+  createTeamLogoFile.value = event?.target?.files?.[0] || null;
 }
 
 function onDrop(event) {
@@ -1067,9 +1120,32 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-if="activeTab === 'upload'" class="upload-grid tab-panel">
+        <article class="panel upload-destination-card">
+          <div class="upload-destination-head">
+            <img class="upload-destination-logo" :src="teamLogoSrc(activeTeam)" :alt="`${activeTeam?.name || 'Team'} logo`" />
+            <div>
+              <h3>Upload Destination</h3>
+              <p class="meta">Uploads and shared links are saved to your active team.</p>
+            </div>
+          </div>
+          <label>
+            <span>Active Team</span>
+            <select v-model="activeTeamId" :disabled="busy || teams.length === 0" @change="switchTeam">
+              <option v-if="teams.length === 0" :value="0">No teams yet</option>
+              <option v-for="team in teams" :key="team.id" :value="Number(team.id)">
+                {{ team.name }} ({{ team.member_count }} members)
+              </option>
+            </select>
+          </label>
+          <div class="button-row">
+            <button class="btn btn-ghost" type="button" @click="activeTab = 'teams'">Manage Teams</button>
+          </div>
+        </article>
+
         <article class="panel stack">
           <h3>Multi-File Upload</h3>
           <p class="mini-note">Drop game photos and clips here to build your season timeline faster.</p>
+          <p class="mini-note"><strong>Current team:</strong> {{ activeTeam?.name || "No active team selected" }}</p>
           <div :class="['dropzone', { active: dragActive }]" @drop="onDrop" @dragover="onDragOver" @dragleave="onDragLeave">
             <p>Drag & drop files here or choose manually</p>
             <input type="file" accept="image/*,video/*" multiple @change="onFileInput" />
@@ -1091,6 +1167,7 @@ onBeforeUnmount(() => {
 
         <article class="panel stack">
           <h3>Share YouTube Clip</h3>
+          <p class="mini-note"><strong>Current team:</strong> {{ activeTeam?.name || "No active team selected" }}</p>
           <input v-model="uploadLinkForm.title" placeholder="Title" required />
           <textarea v-model="uploadLinkForm.description" rows="2" placeholder="Description" />
           <input v-model="uploadLinkForm.game_date" type="date" />
@@ -1320,6 +1397,7 @@ onBeforeUnmount(() => {
         <label>
           <span>Active Team</span>
           <select v-model="activeTeamId" @change="switchTeam">
+            <option v-if="teams.length === 0" :value="0">No teams yet</option>
             <option v-for="team in teams" :key="team.id" :value="Number(team.id)">
               {{ team.name }} ({{ team.member_count }} members)
             </option>
@@ -1329,7 +1407,26 @@ onBeforeUnmount(() => {
         <div class="team-actions">
           <form class="stack compact" @submit.prevent="createTeam">
             <h4>Create New Team</h4>
+            <p class="mini-note">New teams are set active immediately so invites and uploads go to the right place.</p>
             <input v-model="createTeamForm.name" placeholder="Next season team name" required />
+            <div class="profile-grid">
+              <input v-model="createTeamForm.age_group" placeholder="Age group (optional)" />
+              <input v-model="createTeamForm.season_year" placeholder="Season year (optional)" />
+              <input v-model="createTeamForm.level" placeholder="Level (optional)" />
+              <input v-model="createTeamForm.home_rink" placeholder="Home rink (optional)" />
+              <input v-model="createTeamForm.city" placeholder="City / region (optional)" />
+            </div>
+            <textarea v-model="createTeamForm.team_notes" rows="2" placeholder="Team notes (optional)" />
+            <label>
+              <span>Team Logo (optional)</span>
+              <input
+                ref="createTeamLogoInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                :disabled="busy"
+                @change="onCreateTeamLogoSelected"
+              />
+            </label>
             <button class="btn" :disabled="busy">Create Team</button>
           </form>
           <form class="stack compact" @submit.prevent="joinTeam">
@@ -1411,10 +1508,30 @@ onBeforeUnmount(() => {
           <button class="btn" :disabled="busy || !activeTeamId || !isTeamOwner">Save Team Profile</button>
         </form>
 
-        <h4>Members</h4>
+        <div class="members-header">
+          <h4>Members</h4>
+          <p class="meta">Showing {{ filteredTeamMembers.length }} of {{ teamMembers.length }}</p>
+        </div>
+        <div class="member-filter-bar">
+          <input v-model="memberSearchQuery" placeholder="Filter by name or email..." />
+          <select v-model="memberRoleFilter" aria-label="Filter members by role">
+            <option value="all">All roles</option>
+            <option value="owner">Owner</option>
+            <option value="admin">Admin</option>
+            <option value="member">Member</option>
+          </select>
+          <button
+            class="btn btn-ghost"
+            type="button"
+            :disabled="busy || (!memberSearchQuery && memberRoleFilter === 'all')"
+            @click="clearMemberFilters"
+          >
+            Clear
+          </button>
+        </div>
         <p v-if="membersLoading" class="meta">Loading members...</p>
         <div v-else class="member-list">
-          <article v-for="member in teamMembers" :key="member.id" class="member-card">
+          <article v-for="member in filteredTeamMembers" :key="member.id" class="member-card">
             <div>
               <strong>{{ member.display_name }}</strong>
               <p class="meta">{{ member.email }}</p>
@@ -1430,6 +1547,7 @@ onBeforeUnmount(() => {
               </template>
             </div>
           </article>
+          <p v-if="filteredTeamMembers.length === 0" class="meta">No members match your current filter.</p>
         </div>
 
         <article class="panel invite-status-panel">
@@ -1471,7 +1589,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="invite-status-side">
                 <span :class="['invite-status-pill', `is-${invite.status}`]">{{ inviteStatusLabel(invite.status) }}</span>
-                <p v-if="invite.accepted_at" class="meta">Joined {{ displayDateTime(invite.accepted_at) }}</p>
+                <p v-if="invite.accepted_at" class="meta">Active since {{ displayDateTime(invite.accepted_at) }}</p>
                 <p v-if="invite.accepted_user_name" class="meta">{{ invite.accepted_user_name }}</p>
               </div>
             </article>

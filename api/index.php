@@ -18,6 +18,40 @@ function respond_session(PDO $pdo): void
     ]);
 }
 
+function claim_pending_invites_for_user(PDO $pdo, int $uid, string $email): void
+{
+    $emailNorm = strtolower(trim($email));
+    if (!filter_var($emailNorm, FILTER_VALIDATE_EMAIL)) {
+        return;
+    }
+
+    try {
+        $memberStmt = $pdo->prepare(
+            'INSERT INTO team_members (team_id, user_id, role, status)
+             SELECT DISTINCT ti.team_id, ?, "member", "active"
+             FROM team_invites ti
+             WHERE ti.email = ? AND ti.status IN ("pending", "accepted")
+             ON DUPLICATE KEY UPDATE status = "active"'
+        );
+        $memberStmt->execute([$uid, $emailNorm]);
+
+        $inviteStmt = $pdo->prepare(
+            'UPDATE team_invites ti
+             INNER JOIN team_members tm
+                ON tm.team_id = ti.team_id
+               AND tm.user_id = ?
+               AND tm.status = "active"
+             SET ti.status = "accepted",
+                 ti.accepted_at = COALESCE(ti.accepted_at, UTC_TIMESTAMP())
+             WHERE ti.email = ?
+               AND ti.status IN ("pending", "accepted")'
+        );
+        $inviteStmt->execute([$uid, $emailNorm]);
+    } catch (Throwable $e) {
+        // Invite-tracking table may not be migrated yet; never block auth flow.
+    }
+}
+
 function handle_register(PDO $pdo): void
 {
     require_method('POST');
@@ -59,6 +93,7 @@ function handle_register(PDO $pdo): void
             'INSERT INTO team_members (team_id, user_id, role, status) VALUES (?, ?, "owner", "active")'
         );
         $memberStmt->execute([$teamId, $uid]);
+        claim_pending_invites_for_user($pdo, $uid, $email);
 
         $pdo->commit();
 
@@ -95,16 +130,18 @@ function handle_login(PDO $pdo): void
         json_response(['ok' => false, 'error' => 'Email and password are required.'], 422);
     }
 
-    $stmt = $pdo->prepare('SELECT id, password_hash FROM users WHERE email = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, email, password_hash FROM users WHERE email = ? LIMIT 1');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
     if (!$user || !password_verify($password, (string) $user['password_hash'])) {
         json_response(['ok' => false, 'error' => 'Invalid email or password.'], 401);
     }
 
-    $_SESSION['user_id'] = (int) $user['id'];
+    $uid = (int) $user['id'];
+    claim_pending_invites_for_user($pdo, $uid, (string) ($user['email'] ?? $email));
+    $_SESSION['user_id'] = $uid;
     session_regenerate_id(true);
-    $context = get_user_context($pdo, (int) $user['id']);
+    $context = get_user_context($pdo, $uid);
     $_SESSION['display_name'] = (string) ($context['user']['display_name'] ?? '');
     json_response([
         'ok' => true,
@@ -789,11 +826,27 @@ function handle_create_team(PDO $pdo): void
 
     $slug = create_unique_team_slug($pdo, $name);
     $joinCode = create_unique_join_code($pdo);
+    $ageGroup = normalize_optional_string((string) ($input['age_group'] ?? ''), 60);
+    $seasonYear = normalize_optional_string((string) ($input['season_year'] ?? ''), 30);
+    $level = normalize_optional_string((string) ($input['level'] ?? ''), 80);
+    $homeRink = normalize_optional_string((string) ($input['home_rink'] ?? ''), 160);
+    $city = normalize_optional_string((string) ($input['city'] ?? ''), 120);
+    $teamNotes = normalize_optional_string((string) ($input['team_notes'] ?? ''), 2000);
 
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare('INSERT INTO teams (name, slug, join_code, created_by) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$name, $slug, $joinCode, $uid]);
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO teams
+                    (name, age_group, season_year, level, home_rink, city, team_notes, slug, join_code, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([$name, $ageGroup, $seasonYear, $level, $homeRink, $city, $teamNotes, $slug, $joinCode, $uid]);
+        } catch (Throwable $e) {
+            // Backward compatibility for installs missing team metadata columns.
+            $stmt = $pdo->prepare('INSERT INTO teams (name, slug, join_code, created_by) VALUES (?, ?, ?, ?)');
+            $stmt->execute([$name, $slug, $joinCode, $uid]);
+        }
         $teamId = (int) $pdo->lastInsertId();
 
         $memberStmt = $pdo->prepare(
@@ -837,6 +890,14 @@ function handle_join_team(PDO $pdo): void
     );
     $joinedTeamId = (int) $teamId;
     $memberStmt->execute([$joinedTeamId, $uid]);
+    try {
+        $emailStmt = $pdo->prepare('SELECT email FROM users WHERE id = ? LIMIT 1');
+        $emailStmt->execute([$uid]);
+        $memberEmail = (string) ($emailStmt->fetchColumn() ?: '');
+        claim_pending_invites_for_user($pdo, $uid, $memberEmail);
+    } catch (Throwable $e) {
+        // Non-blocking, join flow already completed.
+    }
 
     $context = get_user_context($pdo, $uid);
     json_response(['ok' => true, 'teams' => $context['teams'], 'joined_team_id' => $joinedTeamId]);
