@@ -93,12 +93,6 @@ To improve inbox placement, set these in `api/config.local.php`:
 - `LOCAL_APP_MAIL_RETURN_PATH`
 - `LOCAL_APP_MAIL_REPLY_TO`
 
-In cPanel, also verify:
-
-1. `Email Deliverability` shows SPF and DKIM as valid for your sending domain.
-2. The `From` mailbox exists (or is a valid route) on that domain.
-3. DMARC exists for the parent domain (start with `p=none`, tighten later).
-
 ## Image thumbnail optimization
 
 Photo uploads generate server-side thumbnails (used in gallery cards) when PHP GD functions are available.
